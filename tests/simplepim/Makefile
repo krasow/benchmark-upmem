@@ -1,0 +1,29 @@
+ifndef UPMEM_HOME
+$(error UPMEM_HOME is not defined. Please source upmem_env.sh.)
+endif
+
+BIN_DIR := bin
+HOST := $(BIN_DIR)/host
+
+# Sources
+HOST_SRC := host.c
+SIMPLE_PIM_SRC := \
+    $(SIMPLE_PIM_LIB)/processing/ProcessingHelperHost.c \
+    $(SIMPLE_PIM_LIB)/communication/CommHelper.c \
+    $(SIMPLE_PIM_LIB)/communication/CommOps.c \
+    $(SIMPLE_PIM_LIB)/management/SmallTableInit.c \
+    $(SIMPLE_PIM_LIB)/management/Management.c \
+    $(SIMPLE_PIM_LIB)/processing/map/Map.c \
+    $(SIMPLE_PIM_LIB)/processing/zip/Zip.c
+
+# Compiler flags
+CFLAGS := -std=c99 -O3 -fopenmp -I$(SIMPLE_PIM_LIB)
+LIBS := -lm -ldl `dpu-pkg-config --cflags --libs dpu`
+
+# Targets
+$(HOST): $(HOST_SRC) $(SIMPLE_PIM_SRC)
+	@mkdir -p $(BIN_DIR)
+	gcc $(CFLAGS) $(HOST_SRC) $(SIMPLE_PIM_SRC) -o $(HOST) $(LIBS)
+
+clean:
+	rm -rf $(BIN_DIR)
