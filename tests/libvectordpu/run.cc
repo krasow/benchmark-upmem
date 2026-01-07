@@ -6,7 +6,8 @@
 
 // Chain operations on DPU: ((a + b) - a) -> negate -> abs
 inline dpu_vector<int> compute(const dpu_vector<int>& a, const dpu_vector<int>& b) {
-    return abs(-((a + b) - a));
+    // return abs(-((a + b) - a));
+    return a + b;
 }   
 
 void compare_cpu_dpu_vectors(const std::vector<int>& a,
@@ -17,9 +18,10 @@ void compare_cpu_dpu_vectors(const std::vector<int>& a,
     std::vector<int> cpu_result(N);
 
     for (uint32_t i = 0; i < N; i++) {
-        int temp = (a[i] + b[i]) - a[i];
-        temp = -temp;
-        cpu_result[i] = (temp < 0) ? -temp : temp;  
+        // int temp = (a[i] + b[i]) - a[i];
+        // temp = -temp;
+        // cpu_result[i] = (temp < 0) ? -temp : temp;  
+        cpu_result[i] = a[i] + b[i];
     }
 
     for (uint32_t i = 0; i < N; i++) {
@@ -49,14 +51,12 @@ int main() {
     dpu_vector<int> da = dpu_vector<int>::from_cpu(a);
     dpu_vector<int> db = dpu_vector<int>::from_cpu(b);
 
-    // undefined reference to `dpu_vector<int>::operator=(dpu_vector<int> const&)'
     auto res = dpu_vector<int>(N); 
 
     Timer timer;
     start(&timer, 0, 0);
 
     for (uint32_t i = 0; i < iterations; i++) {
-        std::cout << "Iteration " << i + 1 << "/" << iterations << std::endl;
         res = compute(da, db);
     }
 

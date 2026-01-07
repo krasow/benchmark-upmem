@@ -24,7 +24,8 @@ void vector_addition_host(T* A, T* B, T* res) {
     omp_set_num_threads(16);
     #pragma omp parallel for
     for (uint64_t  i = 0; i < nr_elements; i++) {
-        res[i] = abs(-((A[i] + B[i]) - A[i]));
+        // res[i] = abs(-((A[i] + B[i]) - A[i]));
+        res[i] = A[i] + B[i];
     }
 }
 
