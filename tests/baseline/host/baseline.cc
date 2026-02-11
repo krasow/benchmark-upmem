@@ -54,11 +54,7 @@ void vec_xfer_from_dpu(dpu_set_t dpu_set, char* cpu, DPU_LAUNCH_ARGS *args) {
 
 
 int main() {
-	// from Param.h
-	int32_t elements = nr_elements;
 	int nr_of_dpus = dpu_number;
-
-	int iterations = 100;
 	dpu_set_t dpu_set;
 
 	CHECK_UPMEM(dpu_alloc(nr_of_dpus, "backend=hw", &dpu_set));
@@ -66,7 +62,7 @@ int main() {
 
 	DPU_LAUNCH_ARGS args[nr_of_dpus];
 
-	int elements_per_dpu = elements / nr_of_dpus;
+	int elements_per_dpu = nr_elements / nr_of_dpus;
 	for (uint32_t i = 0; i < nr_of_dpus; i++) {
 		args[i].num_elements = elements_per_dpu;
 		args[i].lhs_offset = 0;
@@ -82,9 +78,9 @@ int main() {
 	//CHECK_UPMEM(dpu_push_xfer(dpu_set, DPU_XFER_TO_DPU, "args", 0,
 	//                            sizeof(args[0]), DPU_XFER_DEFAULT));
 
-	int32_t *a_vec = (int32_t*)malloc(elements * sizeof(int32_t));
-	int32_t *b_vec = (int32_t*)malloc(elements * sizeof(int32_t));
-	int32_t *res_vec = (int32_t*)malloc(elements * sizeof(int32_t));
+	int32_t *a_vec = (int32_t*)malloc(nr_elements * sizeof(int32_t));
+	int32_t *b_vec = (int32_t*)malloc(nr_elements * sizeof(int32_t));
+	int32_t *res_vec = (int32_t*)malloc(nr_elements * sizeof(int32_t));
 
 	vec_xfer_to_dpu(dpu_set, (char*)a_vec, args);
 	vec_xfer_to_dpu(dpu_set, (char*)b_vec, args);
@@ -95,7 +91,7 @@ int main() {
 	for (int i = 0; i < iterations; i++) {
 		// this is just to simulate libvector dpus sending of arguments each iteration
 
-		int elements_per_dpu = elements / nr_of_dpus;
+		int elements_per_dpu = nr_elements / nr_of_dpus;
 		for (uint32_t i = 0; i < nr_of_dpus; i++) {
 			args[i].num_elements = elements_per_dpu;
 			args[i].lhs_offset = 0;
@@ -111,15 +107,13 @@ int main() {
 		CHECK_UPMEM(dpu_push_xfer(dpu_set, DPU_XFER_TO_DPU, "args", 0,
 					sizeof(args[0]), DPU_XFER_DEFAULT));
 
-
-
 		CHECK_UPMEM(dpu_launch(dpu_set, DPU_SYNCHRONOUS));
 		// DPU_FOREACH(dpu_set, dpu) { DPU_ASSERT(dpu_log_read(dpu, stdout)); }
 	}
 
 	stop(&timer, 0);
 
-	printf("the total time with timing consumed is (ms): ");
+	printf("baseline (ms): ");
 	print(&timer, 0, 1);
 	printf("\n");
 

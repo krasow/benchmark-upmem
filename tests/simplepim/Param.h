@@ -7,4 +7,6 @@ const bool check_correctness = false;
 const uint32_t dpu_number = 512;
 uint32_t print_info = 0;
 uint64_t nr_elements = 67108864;
+int iterations = 1000;
+#define OPERATION(a, b) abs(-((a + b) - a))
 #endif

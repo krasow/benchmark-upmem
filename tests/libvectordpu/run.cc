@@ -5,10 +5,8 @@
 #include <vector>
 #include "Param.h"
 
-// Chain operations on DPU: ((a + b) - a) -> negate -> abs
 inline dpu_vector<int> compute(const dpu_vector<int>& a, const dpu_vector<int>& b) {
-    // return abs(-((a + b) - a));
-    return a + b;
+    return OPERATION(a, b);
 }   
 
 void compare_cpu_dpu_vectors(const std::vector<int>& a,
@@ -19,10 +17,7 @@ void compare_cpu_dpu_vectors(const std::vector<int>& a,
     std::vector<int> cpu_result(N);
 
     for (uint32_t i = 0; i < N; i++) {
-        // int temp = (a[i] + b[i]) - a[i];
-        // temp = -temp;
-        // cpu_result[i] = (temp < 0) ? -temp : temp;  
-        cpu_result[i] = a[i] + b[i];
+        cpu_result[i] = OPERATION(a[i], b[i]);
     }
 
     for (uint32_t i = 0; i < N; i++) {

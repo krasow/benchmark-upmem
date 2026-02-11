@@ -24,14 +24,11 @@ void vector_addition_host(T* A, T* B, T* res) {
     omp_set_num_threads(16);
     #pragma omp parallel for
     for (uint64_t  i = 0; i < nr_elements; i++) {
-        // res[i] = abs(-((A[i] + B[i]) - A[i]));
-        res[i] = A[i] + B[i];
+        res[i] = OPERATION(A[i], B[i]);
     }
 }
 
 void run(){
-    int iterations = 100;
-
     simplepim_management_t* table_management = table_management_init(dpu_number);
     T* A = (T*)malloc_scatter_aligned(nr_elements, sizeof(T), table_management);
     T* B = (T*)malloc_scatter_aligned(nr_elements, sizeof(T), table_management);
