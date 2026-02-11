@@ -1,2 +1,3 @@
+export UPMEM_NO_OS_WARNING=1
 source /usr/upmem_env.sh
 export SIMPLE_PIM_LIB=/scratch/david/benchmark-upmem/opt/SimplePIM/lib
