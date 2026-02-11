@@ -14,9 +14,9 @@
 #include "timer.h"
 #include "Param.h"
 
-void init(T* A, uint32_t salt){
+void init(T* A){
     for (uint64_t i = 0; i < nr_elements; i++) {
-        A[i] = (i + salt)%128;
+        A[i] = rand() % 10;
     }
 }
 
@@ -37,9 +37,9 @@ void run(){
     T* B = (T*)malloc_scatter_aligned(nr_elements, sizeof(T), table_management);
 
     T* correct_res = (T*)malloc((uint64_t)sizeof(T)*nr_elements);
-    init(A, 0);
-    init(B, 1);
-    
+
+    init(A);
+    init(B);
 
     for (int i = 0; i <= iterations; i++) {
         vector_addition_host(A, B, correct_res);
@@ -63,23 +63,25 @@ void run(){
 
     stop(&timer, 0);
 
-    printf("the total time with timing consumed is (ms): ");
+    printf("simplepim (ms): ");
     print(&timer, 0, 1);
     printf("\n");
-    
-    int32_t is_correct = 1;
 
-    for(int i=0; i<nr_elements; i++){
+    if (check_correctness){
+        int32_t is_correct = 1;
+
+        for(int i=0; i<nr_elements; i++){
         if(res[i]!=correct_res[i]){
-            is_correct = 0;
-            printf("result mismatch at position %d, got %d, expected %d \n", i, res[i], correct_res[i]);
-            break;
-        }
-    } 
+                is_correct = 0;
+                printf("result mismatch at position %d, got %d, expected %d \n", i, res[i], correct_res[i]);
+                break;
+            }
+        } 
 
-    if(is_correct){
-        printf("the result is correct \n");
-    }  
+        if(is_correct){
+            printf("the result is correct \n");
+        }  
+    }
 }
 
 int main(int argc, char *argv[]){

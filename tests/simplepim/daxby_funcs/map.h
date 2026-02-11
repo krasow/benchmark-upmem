@@ -9,7 +9,7 @@
 void start_func(map_arguments_t* args){}
 
 void map_func(void* input, void* res){
-    *(T*)res = ((T*)input)[0] + ((T*)input)[1];
+    *(T*)res = (((T*)input)[0] + ((T*)input)[1]);
     // *(T*)res = abs(-(((T*)input)[0] + ((T*)input)[1] - ((T*)input)[0]));
 }
 

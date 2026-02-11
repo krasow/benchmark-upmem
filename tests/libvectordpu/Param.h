@@ -4,7 +4,6 @@
 #include <stdlib.h>
 typedef int32_t T; 
 const bool check_correctness = false;
-const uint32_t dpu_number = 512;
-uint32_t print_info = 0;
-uint64_t nr_elements = 67108864;
+const uint32_t N = 67108864;
+const uint32_t iterations = 100;
 #endif

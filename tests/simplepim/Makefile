@@ -2,6 +2,10 @@ ifndef UPMEM_HOME
 $(error UPMEM_HOME is not defined. Please source upmem_env.sh.)
 endif
 
+ifndef SIMPLE_PIM_LIB
+$(error SIMPLE_PIM_LIB is not defined)
+endif
+
 BIN_DIR := bin
 HOST := $(BIN_DIR)/host
 

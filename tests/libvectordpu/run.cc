@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <vector>
+#include "Param.h"
 
 // Chain operations on DPU: ((a + b) - a) -> negate -> abs
 inline dpu_vector<int> compute(const dpu_vector<int>& a, const dpu_vector<int>& b) {
@@ -40,36 +41,44 @@ void compare_cpu_dpu_vectors(const std::vector<int>& a,
 int main() {
     std::srand(std::time(nullptr));
 
-    const uint32_t N = 1024 * 1024;
-    const uint32_t iterations = 100;
-
-    std::vector<int> a(N), b(N);
+    std::vector<T> a(N), b(N);
     for (uint32_t i = 0; i < N; i++) {
         a[i] = std::rand() % 10;  
-        b[i] = std::rand() % 10;  
+        b[i] = std::rand() % 10; 	
     }
-    dpu_vector<int> da = dpu_vector<int>::from_cpu(a);
-    dpu_vector<int> db = dpu_vector<int>::from_cpu(b);
 
-    auto res = dpu_vector<int>(N); 
+    // Timer timer2; 
+    // start(&timer2, 0, 0);
+    dpu_vector<T> da = dpu_vector<T>::from_cpu(a);
+    dpu_vector<T> db = dpu_vector<T>::from_cpu(b);
+
+    auto res = dpu_vector<T>(N); 
+    res.add_fence();
+
+    // stop(&timer2, 0);
+    // printf("sending data first(ms): ");
+    // print(&timer2, 0, 1);
+    // printf("\n");
 
     Timer timer;
     start(&timer, 0, 0);
 
     for (uint32_t i = 0; i < iterations; i++) {
-        res = compute(da, db);
+        res = (da + db);
     }
 
-    std::vector<int> result = res.to_cpu();
+    std::vector<T> result = res.to_cpu();
     res.add_fence();
 
     stop(&timer, 0);
 
-    printf("the total time with timing consumed is (ms): ");
+    printf("libvectordpu (ms): ");
     print(&timer, 0, 1);
     printf("\n");
 
-    compare_cpu_dpu_vectors(a, b, result, iterations);
+    if (check_correctness){
+        compare_cpu_dpu_vectors(a, b, result, iterations);
+    }
 
     return 0;
 }

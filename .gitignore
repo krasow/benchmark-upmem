@@ -2,3 +2,12 @@ libs
 libs/*
 opt
 opt/*
+tid.sh
+*.csv
+*.png
+.localenv
+bin/**
+bin
+*.out
+__pycache__
+__pycache__/**

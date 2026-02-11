@@ -1,2 +1,2 @@
-source /home/david/upmem-related/sources_upmem/upmem/upmem_env.sh simulator
-export SIMPLE_PIM_LIB=/home/david/upmem-driver-test/benchmark/libs/SimplePIM/lib
+source /usr/upmem_env.sh
+export SIMPLE_PIM_LIB=/scratch/david/benchmark-upmem/opt/SimplePIM/lib

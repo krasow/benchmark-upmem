@@ -6,4 +6,4 @@ git clone https://github.com/krasow/simple-pim-clone.git $path/opt/SimplePIM
 
 DESTDIR=$path/opt/vectordpu
 cd $path/opt/vectordpu_src
-DESTDIR=$DESTDIR make install
+DESTDIR=$DESTDIR make install CXX_STANDARD=c++17 BACKEND=hw
