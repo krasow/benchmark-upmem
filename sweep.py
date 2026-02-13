@@ -29,7 +29,7 @@ class Benchmark:
     def update_params_file(self, replacements):
         """Updates the Parameter header file with given replacements keys/values."""
         if not os.path.exists(self.param_file):
-            print(f"Warning: Param file {self.param_file} not found.")
+            print("Warning: Param file {0} not found.".format(self.param_file))
             return
 
         with open(self.param_file, 'r') as f:
@@ -39,11 +39,11 @@ class Benchmark:
             if pattern == "OPERATION":
                 # Handle macro replacement: #define OPERATION(a, b) ...
                 regex = r"(#define\s+OPERATION\s*\(\w+,\s*\w+\)\s*)(.*)"
-                content = re.sub(regex, rf"\1{value}", content)
+                content = re.sub(regex, r"\1" + str(value), content)
             else:
                 # Match assignments to const/uint32_t/uint64_t etc.
-                regex = rf"(\b{pattern}\s*=\s*)([^;]+);"
-                content = re.sub(regex, rf"\g<1>{value};", content)
+                regex = r"(\b{0}\s*=\s*)([^;]+);".format(pattern)
+                content = re.sub(regex, r"\g<1>{0};".format(value), content)
         
         with open(self.param_file, 'w') as f:
             f.write(content)
@@ -61,7 +61,7 @@ class Benchmark:
         if not stdout:
             return None
         
-        match = re.search(rf"{self.label}\s*\(ms\):\s*([0-9.]+)", stdout)
+        match = re.search(r"{0}\s*\(ms\):\s*([0-9.]+)".format(self.label), stdout)
             
         if match:
             return float(match.group(1))
@@ -69,9 +69,9 @@ class Benchmark:
 
     def _run_shell(self, command, verbose=False, extra_env=None):
         """Executes a shell command with the necessary environment."""
-        full_command = f"source {ENV_FILE} && {command}"
+        full_command = "source {0} && {1}".format(ENV_FILE, command)
         if verbose:
-            print(f"[{self.name}] Executing: {full_command}")
+            print("[{0}] Executing: {1}".format(self.name, full_command))
         
         cwd = self.dir
         env = os.environ.copy()
@@ -89,18 +89,18 @@ class Benchmark:
             
             if verbose:
                 if result.stdout:
-                    print(f"[{self.name}] STDOUT:\n{result.stdout}")
+                    print("[{0}] STDOUT:\n{1}".format(self.name, result.stdout))
                 if result.stderr:
-                    print(f"[{self.name}] STDERR:\n{result.stderr}")
+                    print("[{0}] STDERR:\n{1}".format(self.name, result.stderr))
 
             if result.returncode != 0:
-                print(f"Error running command: {command}")
+                print("Error running command: {0}".format(command))
                 if not verbose:
                     print(result.stderr)
                 return None
             return result.stdout
         except Exception as e:
-            print(f"Subprocess exception: {e}")
+            print("Subprocess exception: {0}".format(e))
             return None
 
 
@@ -153,7 +153,7 @@ class Plotter:
     def plot(self):
         """Generates plots from the CSV data."""
         if not os.path.exists(self.csv_path):
-            print(f"CSV file {self.csv_path} not found.")
+            print("CSV file {0} not found.".format(self.csv_path))
             return
 
         try: 
@@ -165,13 +165,13 @@ class Plotter:
             import pandas as pd
             df = pd.read_csv(self.csv_path)
         except Exception as e:
-            print(f"Error reading CSV: {e}")
+            print("Error reading CSV: {0}".format(e))
             return
 
         # Check required columns
         required_cols = {"operation", "elements_per_dpu", "total_elements", "dpus", "benchmark", "time", "scaling"}
         if not required_cols.issubset(df.columns):
-            print(f"CSV missing required columns. Expected: {required_cols}")
+            print("CSV missing required columns. Expected: {0}".format(required_cols))
             return
 
         # Setup standard styles
@@ -209,7 +209,7 @@ class Plotter:
                             subset = scaling_data[scaling_data['elements_per_dpu'] == elem]
                             subset = subset.sort_values(by='dpus')
                             
-                            label = f"{bench} (Weak: {elem/1024/1024:.1f}M/DPU)"
+                            label = "{0} (Weak: {1:.1f}M/DPU)".format(bench, elem/1024/1024.0)
                             # Use elements_per_dpu for marker selection
                             marker = elem_markers.get(elem, 'o')
                             
@@ -229,23 +229,23 @@ class Plotter:
                             subset = scaling_data[scaling_data['total_elements'] == total]
                             subset = subset.sort_values(by='dpus')
                             
-                            label = f"{bench} (Strong: {total/1024/1024:.0f}M Total)"
+                            label = "{0} (Strong: {1:.0f}M Total)".format(bench, total/1024/1024.0)
                             plt.plot(subset['dpus'], subset['time'], 
                                      marker=total_markers.get(total, 'x'),
                                      color=benchmark_colors.get(bench, 'gray'),
                                      label=label,
                                      linestyle='-' if bench == 'libvectordpu' else '--')
 
-            plt.title(f"Benchmark Performance ({op})")
+            plt.title("Benchmark Performance ({0})".format(op))
             plt.xlabel("Number of DPUs")
             plt.ylabel("Execution Time (ms)")
             plt.grid(True)
             plt.legend()
             plt.tight_layout()
             
-            plot_filename = f"plot_{op}_{scaling_type}_scaling.png"
+            plot_filename = "plot_{0}_{1}_scaling.png".format(op, scaling_type)
             plt.savefig(plot_filename)
-            print(f"Plot saved to {plot_filename}")
+            print("Plot saved to {0}".format(plot_filename))
 
 
 class SweepRunner:
@@ -296,7 +296,7 @@ class SweepRunner:
                         elems_per_dpu = nr_elements // nr_dpus
                         scaling_label = "strong"
 
-                    print(f"\n--- Sweeping: op={op_name}, scaling={scaling_label}, elements/dpu={elems_per_dpu}, total={nr_elements}, dpus={nr_dpus} ---")
+                    print("\n--- Sweeping: op={0}, scaling={1}, elements/dpu={2}, total={3}, dpus={4} ---".format(op_name, scaling_label, elems_per_dpu, nr_elements, nr_dpus))
                     
                     results = {}
                     
@@ -335,16 +335,16 @@ class SweepRunner:
                                 if time_val is not None:
                                     writer.writerow([op_name, elems_per_dpu, nr_elements, nr_dpus, bench_name, time_val, scaling_label])
                         
-                        results_str = ", ".join([f"{k}={v}ms" for k, v in results.items() if v is not None])
-                        print(f"Results: {results_str}")
+                        results_str = ", ".join(["{0}={1}ms".format(k, v) for k, v in results.items() if v is not None])
+                        print("Results: {0}".format(results_str))
 
                     except Exception as e:
-                        print(f"Error during sweep step: {e}")
+                        print("Error during sweep step: {0}".format(e))
                         if self.verbose:
                             import traceback
                             traceback.print_exc()
 
-        print(f"\nSweep completed. Results saved to {self.output_csv}")
+        print("\nSweep completed. Results saved to {0}".format(self.output_csv))
 
 
 def main():
@@ -364,7 +364,7 @@ def main():
     if not args.only_plot:
         # Remove old CSV if starting a new run to avoid schema mismatch
         if os.path.exists(csv_file):
-            print(f"Removing existing {csv_file} to start fresh sweep.")
+            print("Removing existing {0} to start fresh sweep.".format(csv_file))
             os.remove(csv_file)
 
         runner = SweepRunner(output_csv=csv_file, verbose=args.verbose, warmup=args.warmup)
@@ -376,7 +376,7 @@ def main():
             modes_to_run = [args.scaling]
 
         for mode in modes_to_run:
-            print(f"Starting {mode} scaling sweep...")
+            print("Starting {0} scaling sweep...".format(mode))
             runner.run_sweep(scaling_mode=mode)
 
     if args.plot or args.only_plot:
