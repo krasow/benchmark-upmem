@@ -8,8 +8,9 @@ import sys
 TESTS_DIR = "/scratch/david/benchmark-upmem/tests"
 ENV_FILE = os.path.join(TESTS_DIR, ".localenv")
 
-DEFAULT_ELEMENTS = [16 * 1024 * 1024, 32 * 1024 * 1024, 64 * 1024 * 1024]
-DEFAULT_DPUS = [64, 128, 256, 512]
+DEFAULT_ELEMENTS_PER_DPU = [2 * 1024 * 1024, 3 * 1024 * 1024]
+DEFAULT_STRONG_TOTAL_ELEMENTS = [128 * 1024 * 1024, 256 * 1024 * 1024]
+DEFAULT_DPUS = [64, 128, 256, 512, 1024]
 DEFAULT_OPERATIONS = [
     ("add", "(a + b)"),
     ("dos", "-(a + b)"),
@@ -18,11 +19,11 @@ DEFAULT_OPERATIONS = [
 
 class Benchmark:
     """Base class for a benchmark."""
-    def __init__(self, name, relative_dir, exec_cmd, label, param_file="Param.h"):
+    def __init__(self, name, exec_cmd, relative_dir=None, label=None, param_file="Param.h"):
         self.name = name
-        self.dir = os.path.join(TESTS_DIR, relative_dir)
+        self.dir = os.path.join(TESTS_DIR, relative_dir if relative_dir else name)
         self.exec_cmd = exec_cmd
-        self.label = label
+        self.label = label if label else name
         self.param_file = os.path.join(self.dir, param_file)
     
     def update_params_file(self, replacements):
@@ -105,23 +106,25 @@ class Benchmark:
 
 class SimplePIM(Benchmark):
     def __init__(self):
-        super().__init__("simplepim", "simplepim", "./bin/host", "simplepim")
+        super().__init__("simplepim", "./bin/host")
 
-    def prepare(self, dpus, elements, op_val):
+    def prepare(self, dpus, elements, op_val, warmup):
         self.update_params_file({
             "dpu_number": dpus,
             "nr_elements": elements,
-            "OPERATION": op_val
+            "OPERATION": op_val,
+            "warmup_iterations": warmup
         })
 
 class LibVectorDPU(Benchmark):
     def __init__(self):
-        super().__init__("libvectordpu", "libvectordpu", "./run", "libvectordpu")
+        super().__init__("libvectordpu", "./run")
 
-    def prepare(self, dpus, elements, op_val):
+    def prepare(self, dpus, elements, op_val, warmup):
         self.update_params_file({
             "N": elements,
-            "OPERATION": op_val
+            "OPERATION": op_val,
+            "warmup_iterations": warmup
         })
 
     def run(self, verbose=False, dpus=None):
@@ -131,13 +134,14 @@ class LibVectorDPU(Benchmark):
 
 class Baseline(Benchmark):
     def __init__(self):
-        super().__init__("baseline", "baseline", "./bin/host_baseline", "baseline")
+        super().__init__("baseline", "./bin/host_baseline")
 
-    def prepare(self, dpus, elements, op_val):
+    def prepare(self, dpus, elements, op_val, warmup):
         self.update_params_file({
             "dpu_number": dpus,
             "nr_elements": elements,
-            "OPERATION": op_val
+            "OPERATION": op_val,
+            "warmup_iterations": warmup
         })
 
 
@@ -146,235 +150,199 @@ class Plotter:
     def __init__(self, csv_path):
         self.csv_path = csv_path
 
-    def _load_data(self):
+    def plot(self):
+        """Generates plots from the CSV data."""
+        if not os.path.exists(self.csv_path):
+            print(f"CSV file {self.csv_path} not found.")
+            return
+
+        try: 
+            import matplotlib.pyplot as plt
+        except ImportError:
+            print("Matplotlib not found. Please install it: pip install matplotlib")
+            return
         try:
             import pandas as pd
             df = pd.read_csv(self.csv_path)
-            if df.empty:
-                print("Error: CSV is empty.")
-                return None
-            # Filter valid rows
-            df = df.dropna(subset=['simplepim_time_ms', 'libvectordpu_time_ms', 'baseline_time_ms'], how='all')
-            if df.empty:
-                print("Error: No successful benchmark results to plot.")
-                return None
-            return df
-        except ImportError:
-            print("Error: pandas not installed.")
-            return None
         except Exception as e:
-            print(f"Error loading CSV: {e}")
-            return None
-
-    def generate_line_plots(self):
-        df = self._load_data()
-        if df is None: return
-
-        try:
-            import matplotlib.pyplot as plt
-            from matplotlib.lines import Line2D
-            plt.style.use('ggplot')
-        except ImportError:
+            print(f"Error reading CSV: {e}")
             return
 
-        ops = df['operation'].unique()
-        
-        benchmark_styles = {
-            'simplepim': {'color': '#E24A33', 'linestyle': '-', 'label_name': 'SimplePIM'},
-            'libvectordpu': {'color': '#348ABD', 'linestyle': '-', 'label_name': 'LibVectorDPU'},
-            'baseline': {'color': '#00B050', 'linestyle': '-', 'label_name': 'Baseline'}
+        # Check required columns
+        required_cols = {"operation", "elements_per_dpu", "total_elements", "dpus", "benchmark", "time", "scaling"}
+        if not required_cols.issubset(df.columns):
+            print(f"CSV missing required columns. Expected: {required_cols}")
+            return
+
+        # Setup standard styles
+        benchmark_colors = {
+            "simplepim": "blue",
+            "libvectordpu": "orange",
+            "baseline": "green"
         }
-
-        all_elements = sorted(df['elements'].unique())
-        markers = ['o', 's', '^', 'D', 'v', '<', '>', 'p', '*', 'h', 'X', 'd']
-        element_markers = {elem: markers[i % len(markers)] for i, elem in enumerate(all_elements)}
-
-        for op in ops:
-            op_df = df[df['operation'] == op]
-            plt.figure(figsize=(12, 7))
-            
-            elements_list = sorted(op_df['elements'].unique())
-            dpus_list = sorted(op_df['dpus'].unique())
-            
-            for elements in elements_list:
-                subset = op_df[op_df['elements'] == elements].sort_values('dpus')
-                marker = element_markers.get(elements, 'o')
-                
-                for key, style in benchmark_styles.items():
-                    col_name = f"{key}_time_ms"
-                    if not subset[col_name].isna().all():
-                        plt.plot(subset['dpus'], subset[col_name], 
-                                 marker=marker, color=style['color'], linestyle=style['linestyle'])
         
-            plt.title(f'Benchmark Performance Comparison ({op})', fontsize=14)
-            plt.xlabel('Number of DPUs', fontsize=12)
-            plt.ylabel('Execution Time (ms)', fontsize=12)
-            
-            # --- Custom Legend ---
-            legend_elements = []
-            
-            # Benchmarks Header
-            legend_elements.append(Line2D([], [], color='none', label=r'$\bf{Benchmarks}$'))
-            for name, style in benchmark_styles.items():
-                legend_elements.append(Line2D([0], [0], color=style['color'], lw=2, linestyle=style['linestyle'], label=style['label_name']))
-            
-            legend_elements.append(Line2D([], [], color='none', label=' '))
+        # Get unique elements_per_dpu for markers
+        unique_elems_per_dpu = sorted(df['elements_per_dpu'].unique())
+        markers = ['o', 's', '^', 'D', 'v', '<', '>', 'p', '*', 'h']
+        elem_markers = {elem: markers[i % len(markers)] for i, elem in enumerate(unique_elems_per_dpu)}
 
-            # Element Sizes Header
-            legend_elements.append(Line2D([], [], color='none', label=r'$\bf{Elements}$'))
-            for elem in elements_list:
-                marker = element_markers.get(elem, 'o')
-                legend_elements.append(Line2D([0], [0], marker=marker, color='w', label=f"{elem:,}", 
-                                              markerfacecolor='gray', markeredgecolor='gray', markersize=8))
+        operations = df['operation'].unique()
 
-            plt.legend(handles=legend_elements, bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=10)
+        for op in operations:
+            op_data = df[df['operation'] == op]
+            
+            plt.figure(figsize=(10, 6))
+            
+            # Plot lines for each benchmark and elements_per_dpu/total_elements
+            for bench in op_data['benchmark'].unique():
+                bench_data = op_data[op_data['benchmark'] == bench]
+                
+                # Check if we have mixed scaling types in this op_data, or just one
+                # Ideally we plot separate figures for weak vs strong, or handle them clearly.
+                # For now, let's iterate over scaling types present.
+                for scaling_type in bench_data['scaling'].unique():
+                    scaling_data = bench_data[bench_data['scaling'] == scaling_type]
+                    
+                    if scaling_type == 'weak':
+                        # Group by elements_per_dpu
+                        for elem in scaling_data['elements_per_dpu'].unique():
+                            subset = scaling_data[scaling_data['elements_per_dpu'] == elem]
+                            subset = subset.sort_values(by='dpus')
+                            
+                            label = f"{bench} (Weak: {elem/1024/1024:.1f}M/DPU)"
+                            # Use elements_per_dpu for marker selection
+                            marker = elem_markers.get(elem, 'o')
+                            
+                            plt.plot(subset['dpus'], subset['time'], 
+                                     marker=marker,
+                                     color=benchmark_colors.get(bench, 'gray'),
+                                     label=label,
+                                     linestyle='-' if bench == 'libvectordpu' else '--')
+                    
+                    elif scaling_type == 'strong':
+                        # Group by total_elements
+                        unique_total = sorted(scaling_data['total_elements'].unique())
+                        # Re-map markers for total elements if needed, or just hash them
+                        total_markers = {t: markers[i % len(markers)] for i, t in enumerate(unique_total)}
+                        
+                        for total in unique_total:
+                            subset = scaling_data[scaling_data['total_elements'] == total]
+                            subset = subset.sort_values(by='dpus')
+                            
+                            label = f"{bench} (Strong: {total/1024/1024:.0f}M Total)"
+                            plt.plot(subset['dpus'], subset['time'], 
+                                     marker=total_markers.get(total, 'x'),
+                                     color=benchmark_colors.get(bench, 'gray'),
+                                     label=label,
+                                     linestyle='-' if bench == 'libvectordpu' else '--')
+
+            plt.title(f"Benchmark Performance ({op})")
+            plt.xlabel("Number of DPUs")
+            plt.ylabel("Execution Time (ms)")
+            plt.grid(True)
+            plt.legend()
             plt.tight_layout()
-            plt.grid(True, which="both", ls="-", alpha=0.5)
-            plt.xscale('log', basex=2)
-            plt.xticks(dpus_list, labels=[str(d) for d in dpus_list], fontsize=11)
-            plt.minorticks_off()
             
-            plot_path = f"sweep_plot_{op}.png"
-            plt.savefig(plot_path)
-            print(f"Plot saved to {plot_path}")
-            plt.close()
-
-    def generate_bar_charts(self):
-        df = self._load_data()
-        if df is None: return
-
-        try:
-            import pandas as pd
-            import matplotlib.pyplot as plt
-            import numpy as np
-            plt.style.use('ggplot')
-        except ImportError:
-            return
-
-        dpus_list = sorted(df['dpus'].unique())
-        ops = df['operation'].unique()
-        elements_list = sorted(df['elements'].unique())
-
-        for dpu_count in dpus_list:
-            dpu_subset = df[df['dpus'] == dpu_count]
-            if dpu_subset.empty: continue
-
-            fig, ax = plt.subplots(figsize=(14, 8))
-            
-            n_elements = len(elements_list)
-            n_ops = len(ops)
-            bar_width = 0.08
-            indices = np.arange(n_elements)
-            colors = ['#E24A33', '#348ABD', '#00B050'] 
-            
-            for i, element in enumerate(elements_list):
-                for j, op in enumerate(ops):
-                    row = dpu_subset[(dpu_subset['elements'] == element) & (dpu_subset['operation'] == op)]
-                    if row.empty: continue
-                    
-                    val_pim = row['simplepim_time_ms'].values[0] if not pd.isna(row['simplepim_time_ms'].values[0]) else 0
-                    val_vec = row['libvectordpu_time_ms'].values[0] if not pd.isna(row['libvectordpu_time_ms'].values[0]) else 0
-                    val_base = row['baseline_time_ms'].values[0] if not pd.isna(row['baseline_time_ms'].values[0]) else 0
-                    
-                    x_base = i 
-                    op_spacing = 3.5 * bar_width
-                    total_op_width = (n_ops - 1) * op_spacing
-                    op_offset = (j * op_spacing) - (total_op_width / 2)
-                    
-                    ax.bar(x_base + op_offset - bar_width, val_pim, bar_width, color=colors[0], 
-                           label='SimplePIM' if i == 0 and j == 0 else "")
-                    ax.bar(x_base + op_offset, val_vec, bar_width, color=colors[1], 
-                           label='LibVectorDPU' if i == 0 and j == 0 else "")
-                    ax.bar(x_base + op_offset + bar_width, val_base, bar_width, color=colors[2], 
-                           label='Baseline' if i == 0 and j == 0 else "")
-                    
-                    ax.text(x_base + op_offset, -0.08, op, ha='center', va='top', 
-                            fontsize=10, rotation=0, transform=ax.get_xaxis_transform(), fontweight='bold')
-
-            ax.set_ylabel('Execution Time (ms)', fontsize=12)
-            ax.set_xlabel('Number of Elements', fontsize=12)
-            ax.set_title(f'Benchmark Comparison by Element Size & Operation ({dpu_count} DPUs)', fontsize=14)
-            ax.set_xticks(indices)
-            ax.set_xticklabels([f"{e:,}" for e in elements_list], fontsize=11)
-            ax.legend(fontsize=10)
-            ax.grid(True, axis='y', alpha=0.5)
-            fig.tight_layout()
-            plt.subplots_adjust(bottom=0.15)
-            
-            plot_path = f"bar_plot_{dpu_count}_dpus.png"
-            plt.savefig(plot_path)
-            print(f"Bar chart saved to {plot_path}")
-            plt.close(fig)
+            plot_filename = f"plot_{op}_{scaling_type}_scaling.png"
+            plt.savefig(plot_filename)
+            print(f"Plot saved to {plot_filename}")
 
 
 class SweepRunner:
-    def __init__(self, output_csv="sweep_results.csv", verbose=False):
+    def __init__(self, output_csv="sweep_results.csv", verbose=False, warmup=10):
         self.output_csv = output_csv
         self.verbose = verbose
+        self.warmup = warmup
         # Initialize Benchmarks
         self.simplepim = SimplePIM()
         self.libvectordpu = LibVectorDPU()
         self.baseline = Baseline()
         self.benchmarks = [self.simplepim, self.libvectordpu, self.baseline]
 
-    def run_sweep(self, operations=DEFAULT_OPERATIONS, elements_list=DEFAULT_ELEMENTS, dpus_list=DEFAULT_DPUS):
-        """Main execution loop for the parameter sweep."""
-        
-        # Open CSV and write header
-        with open(self.output_csv, 'w', newline='') as f:
-            fieldnames = ["operation", "elements", "dpus", "simplepim_time_ms", "libvectordpu_time_ms", "baseline_time_ms"]
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            f.flush()
+    def run_sweep(self, operations=DEFAULT_OPERATIONS, elements_per_dpu_list=DEFAULT_ELEMENTS_PER_DPU, total_elements_list=DEFAULT_STRONG_TOTAL_ELEMENTS, dpus_list=DEFAULT_DPUS, scaling_mode="weak"):
+        """
+        Runs the parameter sweep.
+        scaling_mode: 'weak' or 'strong'
+        """
+        # Create CSV header if file doesn't exist
+        file_exists = os.path.isfile(self.output_csv)
+        with open(self.output_csv, "a", newline="") as csvfile:
+            writer = csv.writer(csvfile)
+            if not file_exists:
+                writer.writerow(["operation", "elements_per_dpu", "total_elements", "dpus", "benchmark", "time", "scaling"])
 
-            for op_name, op_val in operations:
-                for nr_elements in elements_list:
-                    for nr_dpus in dpus_list:
-                        print(f"\n--- Sweeping: op={op_name}, elements={nr_elements}, dpus={nr_dpus} ---")
+        for op_name, op_val in operations:
+            # Determine validation lists based on scaling mode
+            # For weak scaling: iterate elements_per_dpu
+            # For strong scaling: iterate total_elements
+            
+            sweep_configs = []
+            if scaling_mode == "weak":
+                for elems in elements_per_dpu_list:
+                    sweep_configs.append({"elems_per_dpu": elems, "total": None})
+            elif scaling_mode == "strong":
+                for total in total_elements_list:
+                    sweep_configs.append({"elems_per_dpu": None, "total": total})
+            
+            for config in sweep_configs:
+                for nr_dpus in dpus_list:
+                    
+                    if scaling_mode == "weak":
+                        elems_per_dpu = config["elems_per_dpu"]
+                        nr_elements = nr_dpus * elems_per_dpu
+                        scaling_label = "weak"
+                    else: # strong
+                        nr_elements = config["total"]
+                        elems_per_dpu = nr_elements // nr_dpus
+                        scaling_label = "strong"
+
+                    print(f"\n--- Sweeping: op={op_name}, scaling={scaling_label}, elements/dpu={elems_per_dpu}, total={nr_elements}, dpus={nr_dpus} ---")
+                    
+                    results = {}
+                    
+                    try:
+                        # 1. SimplePIM
+                        if self.verbose: print("Processing simplepim...")
+                        self.simplepim.prepare(nr_dpus, nr_elements, op_val, self.warmup)
+                        time_pim = None
+                        if self.simplepim.compile(self.verbose):
+                            out = self.simplepim.run(self.verbose)
+                            time_pim = self.simplepim.parse_time(out)
+                        results["simplepim"] = time_pim
+
+                        # 2. LibVectorDPU
+                        if self.verbose: print("Processing libvectordpu...")
+                        self.libvectordpu.prepare(nr_dpus, nr_elements, op_val, self.warmup)
+                        time_vec = None
+                        if self.libvectordpu.compile(self.verbose):
+                            out = self.libvectordpu.run(self.verbose, dpus=nr_dpus)
+                            time_vec = self.libvectordpu.parse_time(out)
+                        results["libvectordpu"] = time_vec
+
+                        # 3. Baseline
+                        if self.verbose: print("Processing baseline...")
+                        self.baseline.prepare(nr_dpus, nr_elements, op_val, self.warmup)
+                        time_base = None
+                        if self.baseline.compile(self.verbose):
+                            out = self.baseline.run(self.verbose)
+                            time_base = self.baseline.parse_time(out)
+                        results["baseline"] = time_base
+
+                        # Log results to CSV
+                        with open(self.output_csv, "a", newline="") as csvfile:
+                            writer = csv.writer(csvfile)
+                            for bench_name, time_val in results.items():
+                                if time_val is not None:
+                                    writer.writerow([op_name, elems_per_dpu, nr_elements, nr_dpus, bench_name, time_val, scaling_label])
                         
-                        try:
-                            # 1. SimplePIM
-                            if self.verbose: print("Processing simplepim...")
-                            self.simplepim.prepare(nr_dpus, nr_elements, op_val)
-                            time_pim = None
-                            if self.simplepim.compile(self.verbose):
-                                out = self.simplepim.run(self.verbose)
-                                time_pim = self.simplepim.parse_time(out)
+                        results_str = ", ".join([f"{k}={v}ms" for k, v in results.items() if v is not None])
+                        print(f"Results: {results_str}")
 
-                            # 2. LibVectorDPU
-                            if self.verbose: print("Processing libvectordpu...")
-                            self.libvectordpu.prepare(nr_dpus, nr_elements, op_val)
-                            time_vec = None
-                            if self.libvectordpu.compile(self.verbose):
-                                out = self.libvectordpu.run(self.verbose, dpus=nr_dpus)
-                                time_vec = self.libvectordpu.parse_time(out)
-
-                            # 3. Baseline
-                            if self.verbose: print("Processing baseline...")
-                            self.baseline.prepare(nr_dpus, nr_elements, op_val)
-                            time_base = None
-                            if self.baseline.compile(self.verbose):
-                                out = self.baseline.run(self.verbose)
-                                time_base = self.baseline.parse_time(out)
-
-                            print(f"Results: simplepim={time_pim}ms, libvectordpu={time_vec}ms, baseline={time_base}ms")
-                            
-                            writer.writerow({
-                                "operation": op_name,
-                                "elements": nr_elements,
-                                "dpus": nr_dpus,
-                                "simplepim_time_ms": time_pim,
-                                "libvectordpu_time_ms": time_vec,
-                                "baseline_time_ms": time_base
-                            })
-                            f.flush()
-
-                        except KeyboardInterrupt:
-                            print("\nSweep interrupted by user.")
-                            return
-                        except Exception as e:
-                            print(f"Unexpected error during sweep configuration ({op_name}, {nr_elements}, {nr_dpus}): {e}")
-                            f.flush()
+                    except Exception as e:
+                        print(f"Error during sweep step: {e}")
+                        if self.verbose:
+                            import traceback
+                            traceback.print_exc()
 
         print(f"\nSweep completed. Results saved to {self.output_csv}")
 
@@ -384,6 +352,8 @@ def main():
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose output")
     parser.add_argument("-p", "--plot", action="store_true", help="Generate a plot from the results")
     parser.add_argument("--only-plot", action="store_true", help="Only generate the plot from existing sweep_results.csv")
+    parser.add_argument("--warmup", type=int, default=10, help="Number of warmup iterations (default: 10)")
+    parser.add_argument("--scaling", choices=["weak", "strong", "both"], default="weak", help="Scaling type: weak, strong, or both (default: weak)")
     args = parser.parse_args()
 
     # Determine CSV file path - use absolute path or current dir
@@ -392,19 +362,27 @@ def main():
 
     runner = None
     if not args.only_plot:
-        runner = SweepRunner(output_csv=csv_file, verbose=args.verbose)
-        # Note: calling run_sweep without args uses default lists from top of file
-        runner.run_sweep()
+        # Remove old CSV if starting a new run to avoid schema mismatch
+        if os.path.exists(csv_file):
+            print(f"Removing existing {csv_file} to start fresh sweep.")
+            os.remove(csv_file)
+
+        runner = SweepRunner(output_csv=csv_file, verbose=args.verbose, warmup=args.warmup)
+        
+        modes_to_run = []
+        if args.scaling == "both":
+            modes_to_run = ["weak", "strong"]
+        else:
+            modes_to_run = [args.scaling]
+
+        for mode in modes_to_run:
+            print(f"Starting {mode} scaling sweep...")
+            runner.run_sweep(scaling_mode=mode)
 
     if args.plot or args.only_plot:
-        if os.path.exists(csv_file):
-            plotter = Plotter(csv_file)
-            print("Generating line plots...")
-            plotter.generate_line_plots()
-            print("Generating bar charts...")
-            plotter.generate_bar_charts()
-        else:
-            print(f"File {csv_file} not found, cannot generate plots.")
+        print("Generating line plots...")
+        plotter = Plotter(csv_file)
+        plotter.plot()
 
 if __name__ == "__main__":
     main()

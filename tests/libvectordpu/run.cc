@@ -55,6 +55,10 @@ int main() {
     // print(&timer2, 0, 1);
     // printf("\n");
 
+    for (uint32_t i = 0; i < warmup_iterations; i++) {
+        res = (da + db);
+    }
+
     Timer timer;
     start(&timer, 0, 0);
 

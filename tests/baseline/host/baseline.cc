@@ -85,6 +85,26 @@ int main() {
 	vec_xfer_to_dpu(dpu_set, (char*)a_vec, args);
 	vec_xfer_to_dpu(dpu_set, (char*)b_vec, args);
 
+	for (int i = 0; i < warmup_iterations; i++) {
+		int elements_per_dpu = nr_elements / nr_of_dpus;
+		for (uint32_t i = 0; i < nr_of_dpus; i++) {
+			args[i].num_elements = elements_per_dpu;
+			args[i].lhs_offset = 0;
+			args[i].rhs_offset = elements_per_dpu * sizeof(int32_t);
+			args[i].res_offset = elements_per_dpu * 2 * sizeof(int32_t);
+		}
+
+		dpu_set_t dpu;
+		uint32_t idx_dpu = 0;
+		DPU_FOREACH(dpu_set, dpu, idx_dpu) {
+			CHECK_UPMEM(dpu_prepare_xfer(dpu, &args[idx_dpu]));
+		}
+		CHECK_UPMEM(dpu_push_xfer(dpu_set, DPU_XFER_TO_DPU, "args", 0,
+					sizeof(args[0]), DPU_XFER_DEFAULT));
+
+		CHECK_UPMEM(dpu_launch(dpu_set, DPU_SYNCHRONOUS));
+	}
+
 	Timer timer;
 	start(&timer, 0, 0);
 
@@ -111,13 +131,13 @@ int main() {
 		// DPU_FOREACH(dpu_set, dpu) { DPU_ASSERT(dpu_log_read(dpu, stdout)); }
 	}
 
+	vec_xfer_from_dpu(dpu_set, (char*)res_vec, args);
+
 	stop(&timer, 0);
 
 	printf("baseline (ms): ");
 	print(&timer, 0, 1);
 	printf("\n");
-
-	vec_xfer_from_dpu(dpu_set, (char*)res_vec, args);
 
 	free(a_vec);
 	free(b_vec);

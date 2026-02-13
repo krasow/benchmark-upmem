@@ -7,7 +7,7 @@ SRCS := $(wildcard ./*.cc)
 
 INCLUDES := -I../../opt/vectordpu/include/vectordpu
 LDFLAGS := -L../../opt/vectordpu/lib
-CXXFLAGS := -std=c++17 -O3 $(INCLUDES) -g -pg -fno-omit-frame-pointer
+CXXFLAGS := -std=c++17 -O3 $(INCLUDES) -fno-omit-frame-pointer
 
 .PHONY: all clean
 

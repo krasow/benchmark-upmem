@@ -38,21 +38,25 @@ void run(){
     init(A);
     init(B);
 
-    for (int i = 0; i <= iterations; i++) {
+    for (int i = 0; i < iterations; i++) {
         vector_addition_host(A, B, correct_res);
     }
-
-    Timer timer;
-    start(&timer, 0, 0);
-    simplepim_scatter("t1", A, nr_elements,  sizeof(T), table_management);
-    simplepim_scatter("t2", B, nr_elements,  sizeof(T),  table_management);
 
     handle_t* add_handle = create_handle("daxby_funcs", MAP);
     handle_t* zip_handle = create_handle("", ZIP);
 
+    simplepim_scatter("t1", A, nr_elements,  sizeof(T), table_management);
+    simplepim_scatter("t2", B, nr_elements,  sizeof(T),  table_management);
     table_zip("t1", "t2", "t3",  zip_handle, table_management);
 
-    for (int i = 0; i <= iterations; i++) {
+    for (int i = 0; i < warmup_iterations; i++) {
+        table_map("t3", "t4", sizeof(T), add_handle, table_management, 0);
+    }
+
+    Timer timer;
+    start(&timer, 0, 0);
+
+    for (int i = 0; i < iterations; i++) {
         table_map("t3", "t4", sizeof(T), add_handle, table_management, 0);
     }
 
