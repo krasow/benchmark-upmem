@@ -56,14 +56,14 @@ int main() {
     // printf("\n");
 
     for (uint32_t i = 0; i < warmup_iterations; i++) {
-        res = (da + db);
+        res = compute(da, db);
     }
 
     Timer timer;
     start(&timer, 0, 0);
 
     for (uint32_t i = 0; i < iterations; i++) {
-        res = (da + db);
+        res = compute(da, db);
     }
 
     std::vector<T> result = res.to_cpu();

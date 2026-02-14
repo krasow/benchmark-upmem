@@ -9,7 +9,8 @@ TESTS_DIR = "/scratch/david/benchmark-upmem/tests"
 ENV_FILE = os.path.join(TESTS_DIR, ".localenv")
 
 DEFAULT_ELEMENTS_PER_DPU = [2 * 1024 * 1024, 3 * 1024 * 1024]
-DEFAULT_STRONG_TOTAL_ELEMENTS = [128 * 1024 * 1024, 256 * 1024 * 1024]
+# DEFAULT_STRONG_TOTAL_ELEMENTS = [128 * 1024 * 1024, 256 * 1024 * 1024]
+DEFAULT_STRONG_TOTAL_ELEMENTS = [128 * 1024 * 1024]
 DEFAULT_DPUS = [64, 128, 256, 512, 1024]
 DEFAULT_OPERATIONS = [
     ("add", "(a + b)"),
@@ -130,7 +131,39 @@ class LibVectorDPU(Benchmark):
     def run(self, verbose=False, dpus=None):
         # libVectordpu needs NR_DPUS env var for the run script
         env = {"NR_DPUS": str(dpus)} if dpus else {}
-        return super().run(verbose, env=env)
+        return super(LibVectorDPU, self).run(verbose, env=env)
+
+    def rebuild_library(self, use_pipeline, use_logging=False, verbose=False):
+        """Rebuilds the libvectordpu library with the specified PIPELINE and LOGGING settings."""
+        src_dir = os.path.join(os.path.dirname(TESTS_DIR), "opt", "vectordpu_src")
+        dest_dir = os.path.join(os.path.dirname(TESTS_DIR), "opt", "vectordpu")
+        
+        pipeline_val = 1 if use_pipeline else 0
+        logging_val = 1 if use_logging else 0
+        command = "DESTDIR={0} make install BACKEND=hw PIPELINE={1} LOGGING={2} CXX_STANDARD=c++17".format(dest_dir, pipeline_val, logging_val)
+        
+        if verbose:
+            print("[libvectordpu] Rebuilding library with PIPELINE={0}, LOGGING={1}...".format(pipeline_val, logging_val))
+        
+        # We need to run this in the src_dir
+        full_command = "source {0} && {1}".format(ENV_FILE, command)
+        try:
+            result = subprocess.run(
+                ["/bin/bash", "-c", full_command], 
+                capture_output=True, 
+                text=True, 
+                cwd=src_dir
+            )
+            if result.returncode != 0:
+                print("Error rebuilding libvectordpu library:")
+                print(result.stderr)
+                return False
+            if verbose:
+                print(result.stdout)
+            return True
+        except Exception as e:
+            print("Exception during library rebuild: {0}".format(e))
+            return False
 
 class Baseline(Benchmark):
     def __init__(self):
@@ -170,6 +203,7 @@ class Plotter:
 
         # Check required columns
         required_cols = {"operation", "elements_per_dpu", "total_elements", "dpus", "benchmark", "time", "scaling"}
+        # 'pipeline' and 'logging' are optional for backward compatibility
         if not required_cols.issubset(df.columns):
             print("CSV missing required columns. Expected: {0}".format(required_cols))
             return
@@ -210,6 +244,11 @@ class Plotter:
                             subset = subset.sort_values(by='dpus')
                             
                             label = "{0} (Weak: {1:.1f}M/DPU)".format(bench, elem/1024/1024.0)
+                            if 'pipeline' in subset.columns and subset['pipeline'].any():
+                                label += " [PIPELINE]"
+                            if 'logging' in subset.columns and subset['logging'].any():
+                                label += " [LOGGING]"
+                            
                             # Use elements_per_dpu for marker selection
                             marker = elem_markers.get(elem, 'o')
                             
@@ -230,6 +269,11 @@ class Plotter:
                             subset = subset.sort_values(by='dpus')
                             
                             label = "{0} (Strong: {1:.0f}M Total)".format(bench, total/1024/1024.0)
+                            if 'pipeline' in subset.columns and subset['pipeline'].any():
+                                label += " [PIPELINE]"
+                            if 'logging' in subset.columns and subset['logging'].any():
+                                label += " [LOGGING]"
+                                
                             plt.plot(subset['dpus'], subset['time'], 
                                      marker=total_markers.get(total, 'x'),
                                      color=benchmark_colors.get(bench, 'gray'),
@@ -249,27 +293,44 @@ class Plotter:
 
 
 class SweepRunner:
-    def __init__(self, output_csv="sweep_results.csv", verbose=False, warmup=10):
+    def __init__(self, output_csv="sweep_results.csv", verbose=False, warmup=10, use_pipeline=False, use_logging=False, selected_benchmarks=None):
         self.output_csv = output_csv
         self.verbose = verbose
         self.warmup = warmup
+        self.use_pipeline = use_pipeline
+        self.use_logging = use_logging
         # Initialize Benchmarks
         self.simplepim = SimplePIM()
         self.libvectordpu = LibVectorDPU()
         self.baseline = Baseline()
-        self.benchmarks = [self.simplepim, self.libvectordpu, self.baseline]
+        
+        all_benchmarks = [
+            ("simplepim", self.simplepim),
+            ("libvectordpu", self.libvectordpu),
+            ("baseline", self.baseline)
+        ]
+        
+        if selected_benchmarks:
+            self.benchmarks = [b for name, b in all_benchmarks if name in selected_benchmarks]
+        else:
+            self.benchmarks = [b for name, b in all_benchmarks]
 
     def run_sweep(self, operations=DEFAULT_OPERATIONS, elements_per_dpu_list=DEFAULT_ELEMENTS_PER_DPU, total_elements_list=DEFAULT_STRONG_TOTAL_ELEMENTS, dpus_list=DEFAULT_DPUS, scaling_mode="weak"):
         """
         Runs the parameter sweep.
         scaling_mode: 'weak' or 'strong'
         """
+        # Rebuild libvectordpu library if needed and selected
+        if any(isinstance(b, LibVectorDPU) for b in self.benchmarks):
+            if not self.libvectordpu.rebuild_library(self.use_pipeline, self.use_logging, self.verbose):
+                print("Failed to rebuild libvectordpu library. Aborting libvectordpu tests.")
+
         # Create CSV header if file doesn't exist
         file_exists = os.path.isfile(self.output_csv)
         with open(self.output_csv, "a", newline="") as csvfile:
             writer = csv.writer(csvfile)
             if not file_exists:
-                writer.writerow(["operation", "elements_per_dpu", "total_elements", "dpus", "benchmark", "time", "scaling"])
+                writer.writerow(["operation", "elements_per_dpu", "total_elements", "dpus", "benchmark", "time", "scaling", "pipeline", "logging"])
 
         for op_name, op_val in operations:
             # Determine validation lists based on scaling mode
@@ -302,38 +363,43 @@ class SweepRunner:
                     
                     try:
                         # 1. SimplePIM
-                        if self.verbose: print("Processing simplepim...")
-                        self.simplepim.prepare(nr_dpus, nr_elements, op_val, self.warmup)
-                        time_pim = None
-                        if self.simplepim.compile(self.verbose):
-                            out = self.simplepim.run(self.verbose)
-                            time_pim = self.simplepim.parse_time(out)
-                        results["simplepim"] = time_pim
+                        if self.simplepim in self.benchmarks:
+                            if self.verbose: print("Processing simplepim...")
+                            self.simplepim.prepare(nr_dpus, nr_elements, op_val, self.warmup)
+                            time_pim = None
+                            if self.simplepim.compile(self.verbose):
+                                out = self.simplepim.run(self.verbose)
+                                time_pim = self.simplepim.parse_time(out)
+                            results["simplepim"] = time_pim
 
                         # 2. LibVectorDPU
-                        if self.verbose: print("Processing libvectordpu...")
-                        self.libvectordpu.prepare(nr_dpus, nr_elements, op_val, self.warmup)
-                        time_vec = None
-                        if self.libvectordpu.compile(self.verbose):
-                            out = self.libvectordpu.run(self.verbose, dpus=nr_dpus)
-                            time_vec = self.libvectordpu.parse_time(out)
-                        results["libvectordpu"] = time_vec
+                        if self.libvectordpu in self.benchmarks:
+                            if self.verbose: print("Processing libvectordpu...")
+                            self.libvectordpu.prepare(nr_dpus, nr_elements, op_val, self.warmup)
+                            time_vec = None
+                            if self.libvectordpu.compile(self.verbose):
+                                out = self.libvectordpu.run(self.verbose, dpus=nr_dpus)
+                                time_vec = self.libvectordpu.parse_time(out)
+                            results["libvectordpu"] = time_vec
 
                         # 3. Baseline
-                        if self.verbose: print("Processing baseline...")
-                        self.baseline.prepare(nr_dpus, nr_elements, op_val, self.warmup)
-                        time_base = None
-                        if self.baseline.compile(self.verbose):
-                            out = self.baseline.run(self.verbose)
-                            time_base = self.baseline.parse_time(out)
-                        results["baseline"] = time_base
+                        if self.baseline in self.benchmarks:
+                            if self.verbose: print("Processing baseline...")
+                            self.baseline.prepare(nr_dpus, nr_elements, op_val, self.warmup)
+                            time_base = None
+                            if self.baseline.compile(self.verbose):
+                                out = self.baseline.run(self.verbose)
+                                time_base = self.baseline.parse_time(out)
+                            results["baseline"] = time_base
 
                         # Log results to CSV
                         with open(self.output_csv, "a", newline="") as csvfile:
                             writer = csv.writer(csvfile)
                             for bench_name, time_val in results.items():
                                 if time_val is not None:
-                                    writer.writerow([op_name, elems_per_dpu, nr_elements, nr_dpus, bench_name, time_val, scaling_label])
+                                    is_pipeline = 1 if (bench_name == "libvectordpu" and self.use_pipeline) else 0
+                                    is_logging = 1 if (bench_name == "libvectordpu" and self.use_logging) else 0
+                                    writer.writerow([op_name, elems_per_dpu, nr_elements, nr_dpus, bench_name, time_val, scaling_label, is_pipeline, is_logging])
                         
                         results_str = ", ".join(["{0}={1}ms".format(k, v) for k, v in results.items() if v is not None])
                         print("Results: {0}".format(results_str))
@@ -354,6 +420,14 @@ def main():
     parser.add_argument("--only-plot", action="store_true", help="Only generate the plot from existing sweep_results.csv")
     parser.add_argument("--warmup", type=int, default=10, help="Number of warmup iterations (default: 10)")
     parser.add_argument("--scaling", choices=["weak", "strong", "both"], default="weak", help="Scaling type: weak, strong, or both (default: weak)")
+    parser.add_argument("--pipeline", action="store_true", help="Enable PIPELINE support for libvectordpu (requires rebuild)")
+    parser.add_argument("--logging", action="store_true", help="Enable LOGGING support for libvectordpu (requires rebuild)")
+    
+    # Selective benchmarks
+    parser.add_argument("--libvectordpu", action="store_true", help="Run only libvectordpu benchmark")
+    parser.add_argument("--simplepim", action="store_true", help="Run only simplepim benchmark")
+    parser.add_argument("--baseline", action="store_true", help="Run only baseline benchmark")
+    
     args = parser.parse_args()
 
     # Determine CSV file path - use absolute path or current dir
@@ -367,7 +441,22 @@ def main():
             print("Removing existing {0} to start fresh sweep.".format(csv_file))
             os.remove(csv_file)
 
-        runner = SweepRunner(output_csv=csv_file, verbose=args.verbose, warmup=args.warmup)
+        selected_benchmarks = []
+        if args.libvectordpu: selected_benchmarks.append("libvectordpu")
+        if args.simplepim: selected_benchmarks.append("simplepim")
+        if args.baseline: selected_benchmarks.append("baseline")
+        
+        if not selected_benchmarks:
+            selected_benchmarks = None # Default to all in constructor
+
+        runner = SweepRunner(
+            output_csv=csv_file, 
+            verbose=args.verbose, 
+            warmup=args.warmup, 
+            use_pipeline=args.pipeline, 
+            use_logging=args.logging,
+            selected_benchmarks=selected_benchmarks
+        )
         
         modes_to_run = []
         if args.scaling == "both":

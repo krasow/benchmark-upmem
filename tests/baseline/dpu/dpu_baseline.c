@@ -10,7 +10,7 @@
 
 #define NR_TASKLETS 12
 
-#define BLOCK_SIZE_LOG2 4
+#define BLOCK_SIZE_LOG2 6
 #define BLOCK_SIZE (1 << BLOCK_SIZE_LOG2)
 
 
