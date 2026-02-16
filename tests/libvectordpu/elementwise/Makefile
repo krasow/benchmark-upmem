@@ -5,8 +5,8 @@ endif
 
 SRCS := $(wildcard ./*.cc)
 
-INCLUDES := -I../../opt/vectordpu/include/vectordpu
-LDFLAGS := -L../../opt/vectordpu/lib
+INCLUDES := -I../../../opt/vectordpu/include/vectordpu
+LDFLAGS := -L../../../opt/vectordpu/lib
 CXXFLAGS := -std=c++17 -O3 $(INCLUDES) $(EXTRA_FLAGS)
 
 .PHONY: all clean
@@ -14,6 +14,6 @@ CXXFLAGS := -std=c++17 -O3 $(INCLUDES) $(EXTRA_FLAGS)
 all: run
 
 run: $(SRCS)
-	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)  -Wl,-rpath,../../opt/vectordpu/lib -lvectordpu
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)  -Wl,-rpath,../../../opt/vectordpu/lib -lvectordpu
 clean:
 	rm -f run

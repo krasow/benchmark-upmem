@@ -28,6 +28,16 @@ void vector_addition_host(T* A, T* B, T* res) {
     }
 }
 
+void load_bin(const char* filename, void* data, size_t size) {
+    FILE* f = fopen(filename, "rb");
+    if (!f) {
+        fprintf(stderr, "Failed to open %s for reading\n", filename);
+        exit(1);
+    }
+    fread(data, 1, size, f);
+    fclose(f);
+}
+
 void run(){
     simplepim_management_t* table_management = table_management_init(dpu_number);
     T* A = (T*)malloc_scatter_aligned(nr_elements, sizeof(T), table_management);
@@ -35,11 +45,21 @@ void run(){
 
     T* correct_res = (T*)malloc((uint64_t)sizeof(T)*nr_elements);
 
-    init(A);
-    init(B);
-
-    for (int i = 0; i < iterations; i++) {
-        vector_addition_host(A, B, correct_res);
+    if (load_ref) {
+        char path[1024];
+        printf("Loading reference data from %s...\n", ref_path);
+        sprintf(path, "%s/ref_a.bin", ref_path);
+        load_bin(path, A, nr_elements * sizeof(T));
+        sprintf(path, "%s/ref_b.bin", ref_path);
+        load_bin(path, B, nr_elements * sizeof(T));
+        sprintf(path, "%s/ref_res.bin", ref_path);
+        load_bin(path, correct_res, nr_elements * sizeof(T));
+    } else {
+        init(A);
+        init(B);
+        for (int i = 0; i < iterations; i++) {
+            vector_addition_host(A, B, correct_res);
+        }
     }
 
     handle_t* add_handle = create_handle("daxby_funcs", MAP);

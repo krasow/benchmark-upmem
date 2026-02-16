@@ -1,0 +1,24 @@
+#ifndef PARAM_H
+#define PARAM_H
+
+#include <stdlib.h>
+#include <stdint.h>
+
+const uint32_t print_info = 0;
+typedef int T; 
+
+const uint32_t check_correctness = 0;
+const uint32_t load_ref = 0;
+const char* ref_path = "../../cpu-verification/linreg/data";
+const uint32_t seed = 1;
+
+const uint32_t dpu_number = 256;
+const uint32_t dim = 10;
+const uint64_t nr_elements = 268435456;
+const uint32_t iterations = 20;
+const uint32_t warmup_iterations = 1;
+const float lr = 1e-4;
+const uint32_t shift_amount = 0;
+const uint32_t prevent_overflow_shift_amount = 12;
+
+#endif

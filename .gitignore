@@ -14,3 +14,6 @@ __pycache__/**
 output
 output/**
 run
+data
+data/**
+generate_ref
