@@ -1,4 +1,6 @@
 #include <vectordpu.h>
+#include <runtime.h>
+
 #include <cstdlib>
 #include <ctime>
 #include <vector>
@@ -108,5 +110,6 @@ int main() {
         return 1;
     }
 
+    DpuRuntime::get().shutdown();
     return 0;
 }
