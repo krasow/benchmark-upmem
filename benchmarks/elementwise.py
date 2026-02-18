@@ -93,8 +93,5 @@ def run_sweep(args, registry_config):
 def register(registry):
     def add_args(parser):
         parser.add_argument("--elementwise", action="store_true", help="Run elementwise benchmarks (default)")
-        parser.add_argument("--libvectordpu", action="store_true", help="Run only libvectordpu benchmark")
-        parser.add_argument("--simplepim", action="store_true", help="Run only simplepim benchmark")
-        parser.add_argument("--baseline", action="store_true", help="Run only baseline benchmark")
     
     registry.register("elementwise", run_sweep, add_args)

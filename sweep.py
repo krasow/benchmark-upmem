@@ -17,6 +17,12 @@ def main():
     parser.add_argument("--iterations", type=int, default=1, help="Number of iterations for the benchmark (default: 1)")
     parser.add_argument("--check", action="store_true", help="Verify correctness by comparing results")
     parser.add_argument("--dpus", type=int, nargs="+", help="List of DPUs to sweep over")
+    parser.add_argument("--skip-rebuild", dest="skip_rebuild", action="store_true", help="Skip rebuilding libraries")
+
+    # General Benchmark Filters
+    parser.add_argument("--libvectordpu", action="store_true", help="Run only libvectordpu benchmark")
+    parser.add_argument("--simplepim", action="store_true", help="Run only simplepim benchmark")
+    parser.add_argument("--baseline", action="store_true", help="Run only baseline benchmark (if available)")
     
     # Initialize Registry
     registry = SuiteRegistry()

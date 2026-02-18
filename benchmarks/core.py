@@ -142,7 +142,7 @@ class LibVectorDPU(Benchmark):
         logging_val = 1 if use_logging else 0
         trace_val = 1 if use_trace else 0
         
-        command = f"DESTDIR={dest_dir} make install BACKEND=hw PIPELINE={pipeline_val} LOGGING={logging_val} TRACE={trace_val} CXX_STANDARD=c++17"
+        command = f"make clean && DESTDIR={dest_dir} make install BACKEND=hw PIPELINE={pipeline_val} LOGGING={logging_val} TRACE={trace_val} CXX_STANDARD=c++17"
         
         if verbose:
             print(f"[libvectordpu] Rebuilding library with PIPELINE={pipeline_val}, LOGGING={logging_val}, TRACE={trace_val}...")
