@@ -7,7 +7,7 @@ DEFAULT_ELEMENTS_PER_DPU = [2 * 1024 * 1024, 3 * 1024 * 1024]
 
 DEFAULT_OPERATIONS = [
     ("add", "a + b"),
-    ("dos", "-(a + b)")
+    ("dos", "-(a + b)"),
     ("complex", "abs(-((a + b) - a))") 
 ]
 
