@@ -6,6 +6,7 @@ import sys
 
 TESTS_DIR = "/scratch/david/benchmark-upmem/tests"
 ENV_FILE = os.path.join(TESTS_DIR, ".localenv")
+DEFAULT_DPUS = [64, 128, 256, 512, 1024, 2048]
 
 class Benchmark:
     """Base class for a benchmark."""
@@ -201,9 +202,9 @@ class Plotter:
             return
 
         # Check required columns
-        required_cols = {"operation", "elements_per_dpu", "total_elements", "dpus", "benchmark", "time", "scaling"}
-        if not required_cols.issubset(df.columns):
-            print("CSV missing required columns. Expected: {0}".format(required_cols))
+        base_required_cols = {"operation", "elements_per_dpu", "total_elements", "dpus", "benchmark", "time", "scaling"}
+        if not base_required_cols.issubset(df.columns):
+            print("CSV missing required columns. Expected at least: {0}".format(base_required_cols))
             return
 
         # Setup standard styles
@@ -350,3 +351,116 @@ class Plotter:
 
             except Exception as e:
                 print(f"Error generating advanced bar charts: {e}")
+
+def execute_sweep(args, benchmarks, operations, metric_arg="param", output_csv="sweep_results.csv", cpu_benchmark=None, extra_cols=None, elements_per_dpu_list=None, total_elements_list=None):
+    """
+    Executes a parameter sweep across common dimensions (scaling, DPUs) and specific operations.
+    
+    Args:
+        args: Parsed CLI arguments (must have dpus, scaling, verbose, check, warmup, iterations).
+        benchmarks: List of benchmark objects to run.
+        operations: List of tuples (op_name, op_param) to iterate over.
+        metric_arg: Name of the specific argument passed to prepare() as the 3rd arg (e.g. "op_val" or "dim").
+        output_csv: Path to output CSV.
+        cpu_benchmark: Optional CPUBenchmark instance for baseline.
+        extra_cols: Optional dict of {col_name: value} to add to CSV for every row (e.g. {"dim": 10}).
+        elements_per_dpu_list: List of elements per DPU for weak scaling.
+        total_elements_list: List of total elements for strong scaling.
+    """
+    import csv 
+    
+    verbose = args.verbose
+    check = args.check
+    warmup = args.warmup
+    iterations = getattr(args, 'iterations', 1)
+
+    # Defaults if not provided
+    if elements_per_dpu_list is None:
+        elements_per_dpu_list = [1024*1024, 2*1024*1024]
+    if total_elements_list is None:
+        total_elements_list = [128*1024*1024, 256*1024*1024]
+    
+    # 1. Initialize CSV
+    file_exists = os.path.isfile(output_csv)
+    with open(output_csv, "a", newline="") as csvfile:
+        writer = csv.writer(csvfile)
+        if not file_exists:
+            cols = ["operation", "elements_per_dpu", "total_elements", "dpus", "benchmark", "time", "scaling", "pipeline", "logging"]
+            if extra_cols:
+                cols.extend(extra_cols.keys())
+            writer.writerow(cols)
+
+    # 2. Determine Sweep Configurations (Scaling & DPUs)
+    # Default to [64] if not set, handled by sweep.py usually
+    dpus_list = args.dpus if args.dpus else [64] 
+    
+    scaling_modes = ["weak", "strong"] if args.scaling == "both" else [args.scaling]
+    
+    # Scaling defaults
+    # elements_per_dpu_list and total_elements_list are now args
+    
+    for op_name, op_param in operations:
+        for mode in scaling_modes:
+            sweep_configs = []
+            if mode == "weak":
+                for elems in elements_per_dpu_list:
+                    sweep_configs.append({"elems_per_dpu": elems, "total": None})
+            else: # strong
+                for total in total_elements_list:
+                    sweep_configs.append({"elems_per_dpu": None, "total": total})
+            
+            for config in sweep_configs:
+                for nr_dpus in dpus_list:
+                    if mode == "weak":
+                        elems_per_dpu = config["elems_per_dpu"]
+                        nr_elements = nr_dpus * elems_per_dpu
+                        scaling_label = "weak"
+                    else:
+                        nr_elements = config["total"]
+                        elems_per_dpu = nr_elements // nr_dpus
+                        scaling_label = "strong"
+                    
+                    results = {}
+                    
+                    # 3. CPU Baseline (Optional)
+                    if check and cpu_benchmark:
+                        print(f"\n--- Generating CPU Baseline for {op_name} (N={nr_elements}) ---")
+                        # This prepare call assumes a specific signature. 
+                        # To be safe, we pass op_param as 3rd arg.
+                        cpu_benchmark.prepare(nr_dpus, nr_elements, op_param, warmup, iterations, check=check, load_ref=True)
+                        cpu_out = cpu_benchmark.run(verbose)
+                        cpu_time = cpu_benchmark.parse_time(cpu_out)
+                        if cpu_time: results["cpu_baseline"] = cpu_time
+
+                    print(f"\n--- Sweeping: op={op_name}, scaling={scaling_label}, elements/dpu={elems_per_dpu}, total={nr_elements}, dpus={nr_dpus} ---")
+                    
+                    # 4. Run Benchmarks
+                    for bench in benchmarks:
+                        # Call prepare with common args + op_param
+                        bench.prepare(nr_dpus, nr_elements, op_param, warmup, iterations, check=check, load_ref=check)
+                        
+                        if bench.compile(verbose):
+                            try:
+                                out = bench.run(verbose, dpus=nr_dpus)
+                            except TypeError:
+                                out = bench.run(verbose)
+                                
+                            time_val = bench.parse_time(out)
+                            if time_val is not None:
+                                results[bench.name] = time_val
+                                if check:
+                                    res = bench.parse_verification(out)
+                                    print(f"[{bench.name}] VERIFICATION {'SUCCESSFUL' if res is True else 'FAILED' if res is False else 'NOT PERFORMED'}")
+                    
+                    # 5. Write Results
+                    with open(output_csv, "a", newline="") as csvfile:
+                        writer = csv.writer(csvfile)
+                        for bench_name, time_val in results.items():
+                            row = [op_name, elems_per_dpu, nr_elements, nr_dpus, bench_name, time_val, scaling_label, 
+                                   1 if getattr(args, 'pipeline', False) else 0, 
+                                   1 if getattr(args, 'logging', False) else 0]
+                            if extra_cols:
+                                row.extend(extra_cols.values())
+                            writer.writerow(row)
+                            
+                    print("Results: " + ", ".join([f"{k}={v}ms" for k,v in results.items()]))

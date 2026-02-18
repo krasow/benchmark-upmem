@@ -8,7 +8,7 @@ const uint32_t load_ref = 0;
 const char* ref_path = "../../cpu-verification/elementwise/data";
 const uint32_t seed = 1;
 
-const uint64_t N = 1073741824;
+const uint64_t N = 201326592;
 const uint32_t iterations = 1;
 const uint32_t warmup_iterations = 10;
 #define OPERATION(a, b) abs(-((a + b) - a))
