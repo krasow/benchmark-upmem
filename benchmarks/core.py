@@ -46,7 +46,7 @@ class Benchmark:
             command = "EXTRA_FLAGS=\"{0}\" {1}".format(extra_flags, command)
         return self._run_shell(command, verbose)
 
-    def run(self, verbose=False, env=None):
+    def run(self, verbose=False, env=None, **kwargs):
         """Runs the benchmark executable."""
         return self._run_shell(self.exec_cmd, verbose, env)
 
@@ -207,6 +207,18 @@ class Plotter:
             print("CSV missing required columns. Expected at least: {0}".format(base_required_cols))
             return
 
+        # Create 'variant' column for differentiation
+        def create_variant(row):
+            label = row['benchmark']
+            if "libvectordpu" in label:
+                if 'pipeline' in row and row['pipeline'] == 1:
+                    label += " [PIPELINE]"
+                if 'logging' in row and row['logging'] == 1:
+                    label += " [LOGGING]"
+            return label
+        
+        df['variant'] = df.apply(create_variant, axis=1)
+
         # Setup standard styles
         benchmark_colors = {
             "simplepim": "#E24A33",   # Reddish
@@ -234,27 +246,24 @@ class Plotter:
                 unique_groups = sorted(op_df[group_col].unique())
                 group_markers = {val: markers[i % len(markers)] for i, val in enumerate(unique_groups)}
 
-                for bench in op_df['benchmark'].unique():
-                    bench_df = op_df[op_df['benchmark'] == bench]
+                # Iterate over variants instead of benchmarks
+                for variant in op_df['variant'].unique():
+                    bench_df = op_df[op_df['variant'] == variant]
+                    base_bench = variant.split(" [")[0]
+                    
                     for group_val in unique_groups:
                         subset = bench_df[bench_df[group_col] == group_val].sort_values('dpus')
                         if not subset.empty:
                             if scaling_type == 'weak':
-                                label = "{0} ({1}/dpu)".format(bench, group_val)
+                                label = "{0} ({1}/dpu)".format(variant, group_val)
                             else:
-                                label = "{0} (Total: {1})".format(bench, group_val)
+                                label = "{0} (Total: {1})".format(variant, group_val)
                             
-                            if 'pipeline' in subset.columns and 'logging' in subset.columns:
-                                is_p = subset['pipeline'].iloc[0]
-                                is_l = subset['logging'].iloc[0]
-                                if is_p: label += " [PIPELINE]"
-                                if is_l: label += " [LOGGING]"
-                                
                             plt.plot(subset['dpus'], subset['time'], 
                                      marker=group_markers.get(group_val, 'x'),
-                                     color=benchmark_colors.get(bench, 'gray'),
+                                     color=benchmark_colors.get(base_bench, 'gray'),
                                      label=label,
-                                     linestyle='-' if 'vectordpu' in bench else '--')
+                                     linestyle='--' if '[PIPELINE]' in variant else '-')
 
                 plt.title("Benchmark Performance ({0} - {1} scaling)".format(op, scaling_type))
                 plt.xlabel("Number of DPUs")
@@ -281,12 +290,12 @@ class Plotter:
                 except: 
                     pass
 
+                # Pivot using 'variant' instead of 'benchmark'
                 pivot_df = scaling_df.pivot_table(index=['dpus', 'operation', group_col], 
-                                                 columns='benchmark', 
+                                                 columns='variant', 
                                                  values='time').reset_index()
                 
-                for b in ['simplepim', 'libvectordpu', 'baseline']:
-                    if b not in pivot_df.columns: pivot_df[b] = np.nan
+                variants = sorted([c for c in pivot_df.columns if c not in ['dpus', 'operation', group_col] and c in df['variant'].unique()])
 
                 dpus_list = sorted(pivot_df['dpus'].unique())
                 ops = sorted(pivot_df['operation'].unique())
@@ -300,49 +309,63 @@ class Plotter:
                     
                     n_elements = len(elements_list)
                     n_ops = len(ops)
+                    n_variants = len(variants)
+                    
                     # Configuration for grouped bars
-                    bar_width = 0.08
-                    op_spacing = 3.5 * bar_width
-                    total_op_width = (n_ops - 1) * op_spacing
+                    bar_width = 0.8 / n_variants
+                    op_spacing = n_variants * bar_width + 0.2
+                    total_group_width = n_variants * bar_width
                     
-                    indices = np.arange(n_elements)
+                    indices = np.arange(n_elements) * (n_ops * op_spacing + 0.5)
                     
+                    # Store x_ticks
+                    x_tick_pos = []
+                    x_tick_labels = []
+
                     for i, element in enumerate(elements_list):
+                        # Center of this element group
+                        group_center_x = indices[i]
+                        x_tick_pos.append(group_center_x + (n_ops * op_spacing) / 2 - op_spacing/2)
+                        x_tick_labels.append(f"{element:,}")
+
                         for j, op in enumerate(ops):
                             row = dpu_subset[(dpu_subset[group_col] == element) & (dpu_subset['operation'] == op)]
                             if row.empty: continue
                             
-                            val_pim = row['simplepim'].values[0] if not pd.isna(row['simplepim'].values[0]) else 0
-                            val_vec = row['libvectordpu'].values[0] if not pd.isna(row['libvectordpu'].values[0]) else 0
-                            val_base = row['baseline'].values[0] if not pd.isna(row['baseline'].values[0]) else 0
-                            
-                            x_base = i 
-                            op_offset = (j * op_spacing) - (total_op_width / 2)
-                            
-                            # SimplePIM
-                            ax.bar(x_base + op_offset - bar_width, val_pim, bar_width, color=benchmark_colors['simplepim'], 
-                                   label='SimplePIM' if i == 0 and j == 0 else "")
-                            # LibVectorDPU
-                            ax.bar(x_base + op_offset, val_vec, bar_width, color=benchmark_colors['libvectordpu'], 
-                                   label='LibVectorDPU' if i == 0 and j == 0 else "")
-                            # Baseline
-                            ax.bar(x_base + op_offset + bar_width, val_base, bar_width, color=benchmark_colors['baseline'], 
-                                   label='Baseline' if i == 0 and j == 0 else "")
-                            
-                            # Add text label for operation
-                            ax.text(x_base + op_offset, -0.06, op, ha='center', va='top', 
-                                    fontsize=10, rotation=0, transform=ax.get_xaxis_transform(), fontweight='bold')
+                            # Base x for this op
+                            op_base_x = group_center_x + j * op_spacing
+
+                            for k, variant in enumerate(variants):
+                                if variant in row and not pd.isna(row[variant].values[0]):
+                                    val = row[variant].values[0]
+                                    base_bench = variant.split(" [")[0]
+                                    color = benchmark_colors.get(base_bench, 'gray')
+                                    
+                                    # Hatching for pipeline/logging
+                                    hatch = ""
+                                    if "[PIPELINE]" in variant: hatch += "//"
+                                    if "[LOGGING]" in variant: hatch += ".."
+
+                                    ax.bar(op_base_x + k * bar_width, val, bar_width, 
+                                           color=color, hatch=hatch, edgecolor='black', alpha=0.8,
+                                           label=variant if i == 0 and j == 0 else "")
+                                    
+                            # Add text label for operation (centered under the group of bars)
+                            ax.text(op_base_x + total_group_width/2 - bar_width/2, -0.05 * max(dpu_subset[variants].max().max(), 100), 
+                                    op, ha='center', va='top', fontsize=9, rotation=0, fontweight='bold')
 
                     ax.set_ylabel('Execution Time (ms)', fontsize=12)
                     ax.set_xlabel('Elements/DPU' if scaling_type == 'weak' else 'Number of Elements', fontsize=12, labelpad=30)
-                    ax.set_title(f'Benchmark Comparison by Element Size & Operation ({dpu_count} DPUs)', fontsize=14)
-                    ax.set_xticks(indices)
-                    ax.set_xticklabels([f"{e:,}" for e in elements_list], fontsize=11)
+                    ax.set_title(f'Benchmark Comparison ({dpu_count} DPUs)', fontsize=14)
+                    
+                    # Set X-ticks for element groups
+                    ax.set_xticks(x_tick_pos)
+                    ax.set_xticklabels(x_tick_labels, fontsize=11)
                     
                     ax.legend(fontsize=10)
                     ax.grid(True, axis='y', alpha=0.5)
                     fig.tight_layout()
-                    plt.subplots_adjust(bottom=0.18)
+                    plt.subplots_adjust(bottom=0.15)
                     
                     bar_filename = f"bar_plot_{scaling_type}_{dpu_count}_dpus.png"
                     plt.savefig(bar_filename)
@@ -350,6 +373,8 @@ class Plotter:
                     plt.close(fig)
 
             except Exception as e:
+                import traceback
+                traceback.print_exc()
                 print(f"Error generating advanced bar charts: {e}")
 
 def execute_sweep(args, benchmarks, operations, metric_arg="param", output_csv="sweep_results.csv", cpu_benchmark=None, extra_cols=None, elements_per_dpu_list=None, total_elements_list=None):
@@ -399,6 +424,25 @@ def execute_sweep(args, benchmarks, operations, metric_arg="param", output_csv="
     # Scaling defaults
     # elements_per_dpu_list and total_elements_list are now args
     
+    # --- Print Benchmark Plan ---
+    print(f"\n{'='*60}")
+    print(f"BENCHMARK SWEEP CONFIGURATION")
+    print(f"{'='*60}")
+    print(f"Operations: {[op[0] for op in operations]}")
+    print(f"Scaling Modes: {scaling_modes}")
+    print(f"DPUs: {dpus_list}")
+    if "weak" in scaling_modes:
+        print(f"Weak Scaling Elements/DPU: {elements_per_dpu_list}")
+    if "strong" in scaling_modes:
+        print(f"Strong Scaling Total Elements: {total_elements_list}")
+    print(f"Benchmarks: {[b.name for b in benchmarks]}")
+    if extra_cols:
+        print(f"Extra Config: {extra_cols}")
+    if cpu_benchmark and check:
+        print(f"CPU Verification: Enabled ({cpu_benchmark.name})")
+    print(f"{'='*60}\n")
+    # ----------------------------
+
     for op_name, op_param in operations:
         for mode in scaling_modes:
             sweep_configs = []

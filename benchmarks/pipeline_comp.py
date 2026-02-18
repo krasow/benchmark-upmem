@@ -12,6 +12,12 @@ def run_sweep(args, registry_config, registry):
     if args.linreg: sub_suites.append("linreg")
     if args.elementwise or not sub_suites: sub_suites.append("elementwise")
     
+    print(f"\n{'#'*60}")
+    print(f"PIPELINE COMPARISON SUITE")
+    print(f"{'#'*60}")
+    print(f"Sub-suites to run: {sub_suites}")
+    print(f"{'#'*60}\n")
+    
     libvectordpu = LibVectorDPU()
     
     for use_pipeline in [False, True]:
