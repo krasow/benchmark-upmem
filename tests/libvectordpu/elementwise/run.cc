@@ -1,6 +1,7 @@
 #include <vectordpu.h>
 
 #include <cstdlib>
+#include <omp.h>
 #include <ctime>
 #include <vector>
 #include <fstream>
@@ -56,10 +57,14 @@ int main() {
         load_bin(std::string(ref_path) + "/ref_a.bin", a.data(), N * sizeof(T));
         load_bin(std::string(ref_path) + "/ref_b.bin", b.data(), N * sizeof(T));
     } else {
-        std::srand(seed);
+        #pragma omp parallel
+        {
+            unsigned int seed_thread = seed + omp_get_thread_num();
+            #pragma omp for
         for (uint32_t i = 0; i < N; i++) {
-            a[i] = std::rand() % 10;
-            b[i] = std::rand() % 10;
+                a[i] = rand_r(&seed_thread) % 10;
+                b[i] = rand_r(&seed_thread) % 10;
+            }
         }
     }
 

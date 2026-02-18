@@ -18,7 +18,7 @@ def main():
     parser.add_argument("--check", action="store_true", help="Verify correctness by comparing results")
     parser.add_argument("--dpus", type=int, nargs="+", help="List of DPUs to sweep over")
     parser.add_argument("--skip-rebuild", dest="skip_rebuild", action="store_true", help="Skip rebuilding libraries")
-
+    parser.add_argument("--csv-file", type=str, default="sweep_results.csv", help="CSV file to store results")
     # General Benchmark Filters
     parser.add_argument("--libvectordpu", action="store_true", help="Run only libvectordpu benchmark")
     parser.add_argument("--simplepim", action="store_true", help="Run only simplepim benchmark")
@@ -35,7 +35,7 @@ def main():
         registry.get_suite(suite_name)["add_args"](parser)
 
     args = parser.parse_args()
-    csv_file = "sweep_results.csv"
+    csv_file = args.csv_file
 
     if not args.only_plot:
         if os.path.exists(csv_file):

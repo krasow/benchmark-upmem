@@ -6,7 +6,7 @@ import sys
 
 TESTS_DIR = "/scratch/david/benchmark-upmem/tests"
 ENV_FILE = os.path.join(TESTS_DIR, ".localenv")
-DEFAULT_DPUS = [64, 128, 256, 512, 1024, 2048]
+DEFAULT_DPUS = [64, 128, 256, 512, 1024]
 
 class Benchmark:
     """Base class for a benchmark."""
@@ -219,6 +219,13 @@ class Plotter:
         
         df['variant'] = df.apply(create_variant, axis=1)
 
+        # Deduplicate: for non-libvectordpu benchmarks the pipeline/logging flags
+        # are meaningless, so multiple sweep runs create duplicate rows with
+        # identical variant names but different times.  Average them out.
+        group_keys = ['operation', 'elements_per_dpu', 'total_elements', 'dpus', 'variant', 'scaling']
+        df = df.groupby(group_keys, as_index=False).agg({'time': 'mean', 'benchmark': 'first',
+                                                          'pipeline': 'max', 'logging': 'max'})
+
         # Setup standard styles
         benchmark_colors = {
             "simplepim": "#E24A33",   # Reddish
@@ -277,92 +284,95 @@ class Plotter:
                 print("Plot saved to {0}".format(plot_filename))
                 plt.close()
 
-            # 2. Advanced Clustered Bar Charts (One per DPU count)
-            # Skip if only linreg results are present
-            if all(op == 'linreg' for op in scaling_df['operation'].unique()):
-                print(f"Skipping clustered bar charts for {scaling_type} scaling (linreg only).")
-                continue
-
+            # 2. Clustered Bar Charts (One per DPU count, log scale)
             try:
-                # Use ggplot style if available
                 try: 
                     plt.style.use('ggplot')
                 except: 
                     pass
 
-                # Pivot using 'variant' instead of 'benchmark'
                 pivot_df = scaling_df.pivot_table(index=['dpus', 'operation', group_col], 
                                                  columns='variant', 
                                                  values='time').reset_index()
                 
-                variants = sorted([c for c in pivot_df.columns if c not in ['dpus', 'operation', group_col] and c in df['variant'].unique()])
-
+                all_variants = sorted([c for c in pivot_df.columns if c not in ['dpus', 'operation', group_col] and c in df['variant'].unique()])
                 dpus_list = sorted(pivot_df['dpus'].unique())
-                ops = sorted(pivot_df['operation'].unique())
-                elements_list = sorted(pivot_df[group_col].unique())
+                all_ops = sorted(pivot_df['operation'].unique())
+                all_elements = sorted(pivot_df[group_col].unique())
 
                 for dpu_count in dpus_list:
                     dpu_subset = pivot_df[pivot_df['dpus'] == dpu_count]
                     if dpu_subset.empty: continue
 
-                    fig, ax = plt.subplots(figsize=(14, 8))
+                    fig, ax = plt.subplots(figsize=(max(14, len(all_elements) * 3), 7))
                     
-                    n_elements = len(elements_list)
-                    n_ops = len(ops)
-                    n_variants = len(variants)
-                    
-                    # Configuration for grouped bars
-                    bar_width = 0.8 / n_variants
-                    op_spacing = n_variants * bar_width + 0.2
-                    total_group_width = n_variants * bar_width
-                    
-                    indices = np.arange(n_elements) * (n_ops * op_spacing + 0.5)
-                    
-                    # Store x_ticks
+                    added_labels = set()
                     x_tick_pos = []
                     x_tick_labels = []
+                    cursor = 0.0  # running x position
+                    element_gap = 1.5
+                    op_gap = 0.4
+                    bar_width = 0.35
 
-                    for i, element in enumerate(elements_list):
-                        # Center of this element group
-                        group_center_x = indices[i]
-                        x_tick_pos.append(group_center_x + (n_ops * op_spacing) / 2 - op_spacing/2)
-                        x_tick_labels.append(f"{element:,}")
+                    for ei, element in enumerate(all_elements):
+                        if ei > 0:
+                            cursor += element_gap
 
-                        for j, op in enumerate(ops):
+                        # Which ops have data for this element?
+                        elem_ops = [op for op in all_ops 
+                                    if not dpu_subset[(dpu_subset[group_col] == element) & (dpu_subset['operation'] == op)].empty]
+                        if not elem_ops:
+                            continue
+
+                        group_start = cursor
+                        for oi, op in enumerate(elem_ops):
+                            if oi > 0:
+                                cursor += op_gap
+                            
                             row = dpu_subset[(dpu_subset[group_col] == element) & (dpu_subset['operation'] == op)]
                             if row.empty: continue
                             
-                            # Base x for this op
-                            op_base_x = group_center_x + j * op_spacing
+                            # Only place bars for variants that have data for this op
+                            present = [v for v in all_variants if v in row.columns and not pd.isna(row[v].values[0])]
+                            
+                            op_start = cursor
+                            for ki, variant in enumerate(present):
+                                val = row[variant].values[0]
+                                base_bench = variant.split(" [")[0]
+                                color = benchmark_colors.get(base_bench, 'gray')
+                                
+                                hatch = ""
+                                if "[PIPELINE]" in variant: hatch = "//"
+                                if "[LOGGING]" in variant: hatch = ".."
 
-                            for k, variant in enumerate(variants):
-                                if variant in row and not pd.isna(row[variant].values[0]):
-                                    val = row[variant].values[0]
-                                    base_bench = variant.split(" [")[0]
-                                    color = benchmark_colors.get(base_bench, 'gray')
-                                    
-                                    # Hatching for pipeline/logging
-                                    hatch = ""
-                                    if "[PIPELINE]" in variant: hatch += "//"
-                                    if "[LOGGING]" in variant: hatch += ".."
+                                lbl = variant if variant not in added_labels else ""
+                                ax.bar(cursor, val, bar_width,
+                                       color=color, hatch=hatch, edgecolor='black', alpha=0.85,
+                                       label=lbl)
+                                if lbl:
+                                    added_labels.add(variant)
+                                cursor += bar_width
+                            
+                            # Op label centered under its bars
+                            op_center = (op_start + cursor - bar_width) / 2
+                            ax.text(op_center, 0, op, ha='center', va='top', fontsize=8,
+                                    fontweight='bold', transform=ax.get_xaxis_transform())
 
-                                    ax.bar(op_base_x + k * bar_width, val, bar_width, 
-                                           color=color, hatch=hatch, edgecolor='black', alpha=0.8,
-                                           label=variant if i == 0 and j == 0 else "")
-                                    
-                            # Add text label for operation (centered under the group of bars)
-                            ax.text(op_base_x + total_group_width/2 - bar_width/2, -0.05 * max(dpu_subset[variants].max().max(), 100), 
-                                    op, ha='center', va='top', fontsize=9, rotation=0, fontweight='bold')
+                        # Element label centered under this element group
+                        group_center = (group_start + cursor - bar_width) / 2
+                        x_tick_pos.append(group_center)
+                        x_tick_labels.append(f"{element:,}")
 
-                    ax.set_ylabel('Execution Time (ms)', fontsize=12)
-                    ax.set_xlabel('Elements/DPU' if scaling_type == 'weak' else 'Number of Elements', fontsize=12, labelpad=30)
+                    ax.set_yscale('log')
+                    ax.set_ylabel('Execution Time (ms, log scale)', fontsize=12)
+                    ax.set_xlabel('Elements/DPU' if scaling_type == 'weak' else 'Number of Elements', fontsize=12, labelpad=28)
                     ax.set_title(f'Benchmark Comparison ({dpu_count} DPUs)', fontsize=14)
                     
-                    # Set X-ticks for element groups
                     ax.set_xticks(x_tick_pos)
                     ax.set_xticklabels(x_tick_labels, fontsize=11)
                     
-                    ax.legend(fontsize=10)
+                    if added_labels:
+                        ax.legend(fontsize=9, loc='upper left')
                     ax.grid(True, axis='y', alpha=0.5)
                     fig.tight_layout()
                     plt.subplots_adjust(bottom=0.15)
