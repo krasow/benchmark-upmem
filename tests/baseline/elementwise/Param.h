@@ -7,10 +7,10 @@ const uint32_t check_correctness = false;
 const uint32_t load_ref = false;
 const char* ref_path = "../../cpu-verification/elementwise/data";
 const uint32_t seed = 1;
-const uint32_t dpu_number = 64;
+const uint32_t dpu_number = 1024;
 uint32_t print_info = 0;
-uint64_t nr_elements = 201326592;
-int iterations = 1;
+uint64_t nr_elements = 3221225472;
+int iterations = 50;
 const int warmup_iterations = 10;
 #define OPERATION(a, b) abs(-((a + b) - a))
 #endif

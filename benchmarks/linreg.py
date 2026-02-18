@@ -6,7 +6,7 @@ class SimplePIMLinReg(Benchmark):
     def __init__(self):
         super().__init__("simplepim_linreg", "./bin/host", relative_dir="simplepim/linreg", label="simplepim")
 
-    def prepare(self, dpus, elements, dim, iterations, warmup, check=False, load_ref=False, seed=1):
+    def prepare(self, dpus, elements, dim, warmup, iterations, check=False, load_ref=False, seed=1):
         self.update_params_file({
             "dpu_number": dpus,
             "nr_elements": elements,
@@ -25,7 +25,7 @@ class LibVectorDPULinReg(LibVectorDPU):
     def __init__(self):
         super().__init__(name="libvectordpu_linreg", exec_cmd="./run", relative_dir="libvectordpu/linreg", label="libvectordpu")
 
-    def prepare(self, dpus, elements, dim, iterations, warmup, check=False, load_ref=False, seed=1):
+    def prepare(self, dpus, elements, dim, warmup, iterations, check=False, load_ref=False, seed=1):
         self.update_params_file({
             "N": elements,
             "DIM": dim,
