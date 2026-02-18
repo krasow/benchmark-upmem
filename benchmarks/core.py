@@ -391,8 +391,8 @@ def execute_sweep(args, benchmarks, operations, metric_arg="param", output_csv="
             writer.writerow(cols)
 
     # 2. Determine Sweep Configurations (Scaling & DPUs)
-    # Default to [64] if not set, handled by sweep.py usually
-    dpus_list = args.dpus if args.dpus else [64] 
+    # Default to DEFAULT_DPUS if not set, handled by sweep.py usually
+    dpus_list = args.dpus if args.dpus else DEFAULT_DPUS
     
     scaling_modes = ["weak", "strong"] if args.scaling == "both" else [args.scaling]
     
