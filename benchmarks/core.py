@@ -232,7 +232,9 @@ class Plotter:
             "libvectordpu": "#348ABD", # Blueish
             "baseline": "#00B050",     # Greenish
             "simplepim_linreg": "#E24A33",
-            "libvectordpu_linreg": "#348ABD"
+            "libvectordpu_linreg": "#348ABD",
+            "baseline_fused": "#00B050",        # Greenish (compiled fused)
+            "baseline_interpreter": "#8B5CF6",  # Purple (interpreter-style)
         }
         
         # Markers for different elements per dpu

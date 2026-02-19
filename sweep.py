@@ -2,7 +2,7 @@ import os
 import argparse
 import sys
 from benchmarks.core import SuiteRegistry, Plotter
-from benchmarks import elementwise, linreg, pipeline_comp
+from benchmarks import elementwise, linreg, pipeline_comp, interpreter_comp, kernel_loading
 
 def main():
     parser = argparse.ArgumentParser(description="Parameter sweep for UPMEM benchmarks")
@@ -29,6 +29,8 @@ def main():
     elementwise.register(registry)
     linreg.register(registry)
     pipeline_comp.register(registry)
+    interpreter_comp.register(registry)
+    kernel_loading.register(registry)
     
     # Let suites add their own specific args if needed
     for suite_name in registry.list_suites():
@@ -46,6 +48,10 @@ def main():
         suites_to_run = []
         if args.pipeline_comp:
             suites_to_run.append("pipeline_comp")
+        if args.interpreter_comp:
+            suites_to_run.append("interpreter_comp")
+        if args.kernel_loading:
+            suites_to_run.append("kernel_loading")
         
         if not suites_to_run:
             if args.linreg:
@@ -60,8 +66,11 @@ def main():
             suite["runner"](args, suite)
 
     if args.plot or args.only_plot:
-        plotter = Plotter(csv_file)
-        plotter.plot()
+        if getattr(args, 'kernel_loading', False):
+            kernel_loading.plot_results(csv_file)
+        else:
+            plotter = Plotter(csv_file)
+            plotter.plot()
 
 if __name__ == "__main__":
     main()
