@@ -17,3 +17,6 @@ run
 data
 data/**
 generate_ref
+build
+*.trace
+*.perfetto-trace

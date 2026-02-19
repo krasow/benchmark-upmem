@@ -77,7 +77,7 @@ class Benchmark:
                     print("[{0}] STDERR:\n{1}".format(self.name, result.stderr))
 
             if result.returncode != 0:
-                print("Error running command: {0}".format(command))
+                print("Error running command: {0} (Return Code: {1})".format(command, result.returncode))
                 if not verbose:
                     print(result.stderr)
                 return None
@@ -130,22 +130,25 @@ class LibVectorDPU(Benchmark):
     def __init__(self, name="libvectordpu", exec_cmd="./run", relative_dir="libvectordpu", label="libvectordpu"):
         super().__init__(name, exec_cmd, relative_dir, label)
 
-    def run(self, verbose=False, dpus=None):
-        env = {"NR_DPUS": str(dpus)} if dpus else {}
-        return super().run(verbose, env=env)
+    def run(self, verbose=False, dpus=None, env=None):
+        run_env = {"NR_DPUS": str(dpus)} if dpus else {}
+        if env:
+            run_env.update(env)
+        return super().run(verbose, env=run_env)
 
-    def rebuild_library(self, use_pipeline, use_logging=False, use_trace=False, verbose=False):
+    def rebuild_library(self, use_pipeline, use_logging=False, use_trace=False, use_jit=False, verbose=False):
         src_dir = os.path.join(os.path.dirname(TESTS_DIR), "opt", "vectordpu_src")
         dest_dir = os.path.join(os.path.dirname(TESTS_DIR), "opt", "vectordpu")
         
-        pipeline_val = 1 if use_pipeline else 0
         logging_val = 1 if use_logging else 0
         trace_val = 1 if use_trace else 0
+        jit_val = 1 if use_jit else 0
+        pipeline_val = 1 if (use_pipeline or use_jit) else 0
         
-        command = f"make clean && DESTDIR={dest_dir} make install BACKEND=hw PIPELINE={pipeline_val} LOGGING={logging_val} TRACE={trace_val} CXX_STANDARD=c++17"
+        command = f"make clean && DESTDIR={dest_dir} make install BACKEND=hw PIPELINE={pipeline_val} LOGGING={logging_val} TRACE={trace_val} JIT={jit_val} CXX_STANDARD=c++17"
         
         if verbose:
-            print(f"[libvectordpu] Rebuilding library with PIPELINE={pipeline_val}, LOGGING={logging_val}, TRACE={trace_val}...")
+            print(f"[libvectordpu] Rebuilding library with PIPELINE={pipeline_val}, LOGGING={logging_val}, TRACE={trace_val}, JIT={jit_val}...")
         
         full_command = f"source {ENV_FILE} && {command}"
         try:
@@ -209,13 +212,22 @@ class Plotter:
 
         # Create 'variant' column for differentiation
         def create_variant(row):
-            label = row['benchmark']
-            if "libvectordpu" in label:
-                if 'pipeline' in row and row['pipeline'] == 1:
-                    label += " [PIPELINE]"
-                if 'logging' in row and row['logging'] == 1:
-                    label += " [LOGGING]"
-            return label
+            bench = str(row['benchmark'])
+            # Normalize core benchmark names
+            if "simplepim" in bench: base = "simplepim"
+            elif "libvectordpu" in bench: base = "libvectordpu"
+            elif "baseline" in bench: base = "baseline"
+            else: base = bench
+            
+            mods = []
+            if base == "libvectordpu":
+                if row.get('pipeline') == 1: mods.append("pipeline")
+                if row.get('jit') == 1: mods.append("jit")
+                if row.get('logging') == 1: mods.append("logging")
+            
+            if mods:
+                return f"{base} ({'+'.join(mods)})"
+            return base
         
         df['variant'] = df.apply(create_variant, axis=1)
 
@@ -224,18 +236,21 @@ class Plotter:
         # identical variant names but different times.  Average them out.
         group_keys = ['operation', 'elements_per_dpu', 'total_elements', 'dpus', 'variant', 'scaling']
         df = df.groupby(group_keys, as_index=False).agg({'time': 'mean', 'benchmark': 'first',
-                                                          'pipeline': 'max', 'logging': 'max'})
+                                                          'pipeline': 'max', 'logging': 'max', 'jit': 'max'})
 
-        # Setup standard styles
-        benchmark_colors = {
-            "simplepim": "#E24A33",   # Reddish
-            "libvectordpu": "#348ABD", # Blueish
-            "baseline": "#00B050",     # Greenish
-            "simplepim_linreg": "#E24A33",
-            "libvectordpu_linreg": "#348ABD",
-            "baseline_fused": "#00B050",        # Greenish (compiled fused)
-            "baseline_interpreter": "#8B5CF6",  # Purple (interpreter-style)
+        # Permanent color and style mapping
+        style_map = {
+            "simplepim": {"color": "red", "linestyle": "-"},
+            "baseline": {"color": "green", "linestyle": "-"},
+            "libvectordpu": {"color": "blue", "linestyle": "-"},
+            "libvectordpu (pipeline)": {"color": "#008080", "linestyle": "--"}, # Teal
+            "libvectordpu (jit)": {"color": "#FF8C00", "linestyle": ":"},   # Dark Orange
+            "libvectordpu (pipeline+jit)": {"color": "purple", "linestyle": "-."},
+            "libvectordpu (logging)": {"color": "gray", "linestyle": "--"},
         }
+
+        def get_style(variant):
+            return style_map.get(variant, {"color": "gray", "linestyle": "-"})
         
         # Markers for different elements per dpu
         markers = ["o", "v", "^", "<", ">", "s", "p", "*", "D"]
@@ -250,39 +265,46 @@ class Plotter:
 
             # 1. Line Plots (Per Operation)
             for op in scaling_df['operation'].unique():
-                plt.figure(figsize=(10, 6))
+                plt.figure(figsize=(12, 6))
                 op_df = scaling_df[scaling_df['operation'] == op]
                 unique_groups = sorted(op_df[group_col].unique())
                 group_markers = {val: markers[i % len(markers)] for i, val in enumerate(unique_groups)}
 
-                # Iterate over variants instead of benchmarks
-                for variant in op_df['variant'].unique():
+                for variant in sorted(op_df['variant'].unique()):
                     bench_df = op_df[op_df['variant'] == variant]
-                    base_bench = variant.split(" [")[0]
+                    style = get_style(variant)
                     
+                    # Plot all sizes but don't add them to legend.
+                    # We'll add one entry for the variant itself.
                     for group_val in unique_groups:
                         subset = bench_df[bench_df[group_col] == group_val].sort_values('dpus')
                         if not subset.empty:
-                            if scaling_type == 'weak':
-                                label = "{0} ({1}/dpu)".format(variant, group_val)
-                            else:
-                                label = "{0} (Total: {1})".format(variant, group_val)
-                            
                             plt.plot(subset['dpus'], subset['time'], 
                                      marker=group_markers.get(group_val, 'x'),
-                                     color=benchmark_colors.get(base_bench, 'gray'),
-                                     label=label,
-                                     linestyle='--' if '[PIPELINE]' in variant else '-')
+                                     color=style['color'],
+                                     linestyle=style['linestyle'],
+                                     label="_nolegend_")
+                    
+                    # Add one legend entry for the variant
+                    plt.plot([], [], color=style['color'], linestyle=style['linestyle'], label=variant)
+                
+                # Restore size markers in legend
+                size_label_prefix = "Size (per DPU)" if scaling_type == "weak" else "Total Size"
+                for group_val in unique_groups:
+                    plt.plot([], [], color='gray', marker=group_markers[group_val], 
+                             linestyle='None', label=f"{size_label_prefix}: {group_val:,}")
 
                 plt.title("Benchmark Performance ({0} - {1} scaling)".format(op, scaling_type))
                 plt.xlabel("Number of DPUs")
                 plt.ylabel("Execution Time (ms)")
-                plt.grid(True)
-                plt.legend()
+                plt.grid(True, alpha=0.3)
+                
+                # Move legend outside to the right
+                plt.legend(bbox_to_anchor=(1.02, 1), loc="upper left", borderaxespad=0)
                 plt.tight_layout()
                 
                 plot_filename = "plot_{0}_{1}_scaling.png".format(op, scaling_type)
-                plt.savefig(plot_filename)
+                plt.savefig(plot_filename, bbox_inches='tight')
                 print("Plot saved to {0}".format(plot_filename))
                 plt.close()
 
@@ -306,7 +328,7 @@ class Plotter:
                     dpu_subset = pivot_df[pivot_df['dpus'] == dpu_count]
                     if dpu_subset.empty: continue
 
-                    fig, ax = plt.subplots(figsize=(max(14, len(all_elements) * 3), 7))
+                    fig, ax = plt.subplots(figsize=(max(8, len(all_elements) * 2), 6))
                     
                     added_labels = set()
                     x_tick_pos = []
@@ -340,12 +362,19 @@ class Plotter:
                             op_start = cursor
                             for ki, variant in enumerate(present):
                                 val = row[variant].values[0]
-                                base_bench = variant.split(" [")[0]
-                                color = benchmark_colors.get(base_bench, 'gray')
+                                style = get_style(variant)
+                                color = style['color']
                                 
                                 hatch = ""
-                                if "[PIPELINE]" in variant: hatch = "//"
-                                if "[LOGGING]" in variant: hatch = ".."
+                                # New style variants
+                                if "(pipeline)" in variant: hatch = "////"
+                                if "(jit)" in variant: hatch = "xxxx"
+                                if "(pipeline+jit)" in variant: hatch = "...."
+                                if "(logging)" in variant: hatch = "++"
+                                
+                                # Legacy style variants (just in case)
+                                if "[PIPELINE]" in variant and not hatch: hatch = "//"
+                                if "[JIT]" in variant and not hatch: hatch = "xx"
 
                                 lbl = variant if variant not in added_labels else ""
                                 ax.bar(cursor, val, bar_width,
@@ -367,20 +396,21 @@ class Plotter:
 
                     ax.set_yscale('log')
                     ax.set_ylabel('Execution Time (ms, log scale)', fontsize=12)
-                    ax.set_xlabel('Elements/DPU' if scaling_type == 'weak' else 'Number of Elements', fontsize=12, labelpad=28)
+                    ax.set_xlabel('Elements/DPU' if scaling_type == 'weak' else 'Number of Elements', fontsize=12, labelpad=10)
                     ax.set_title(f'Benchmark Comparison ({dpu_count} DPUs)', fontsize=14)
                     
                     ax.set_xticks(x_tick_pos)
                     ax.set_xticklabels(x_tick_labels, fontsize=11)
                     
                     if added_labels:
-                        ax.legend(fontsize=9, loc='upper left')
-                    ax.grid(True, axis='y', alpha=0.5)
+                        # Overlay legend on the right side of the plot area
+                        ax.legend(loc='upper right', framealpha=0.5, fontsize=9, edgecolor='black')
+                        
+                    ax.grid(True, axis='y', alpha=0.3)
                     fig.tight_layout()
-                    plt.subplots_adjust(bottom=0.15)
                     
                     bar_filename = f"bar_plot_{scaling_type}_{dpu_count}_dpus.png"
-                    plt.savefig(bar_filename)
+                    plt.savefig(bar_filename, bbox_inches='tight')
                     print(f"Bar chart saved to {bar_filename}")
                     plt.close(fig)
 
@@ -422,7 +452,7 @@ def execute_sweep(args, benchmarks, operations, metric_arg="param", output_csv="
     with open(output_csv, "a", newline="") as csvfile:
         writer = csv.writer(csvfile)
         if not file_exists:
-            cols = ["operation", "elements_per_dpu", "total_elements", "dpus", "benchmark", "time", "scaling", "pipeline", "logging"]
+            cols = ["operation", "elements_per_dpu", "total_elements", "dpus", "benchmark", "time", "scaling", "pipeline", "logging", "jit"]
             if extra_cols:
                 cols.extend(extra_cols.keys())
             writer.writerow(cols)
@@ -496,10 +526,14 @@ def execute_sweep(args, benchmarks, operations, metric_arg="param", output_csv="
                         bench.prepare(nr_dpus, nr_elements, op_param, warmup, iterations, check=check, load_ref=check)
                         
                         if bench.compile(verbose):
+                            run_env = {}
+                            if getattr(args, 'trace', None) and isinstance(args.trace, str):
+                                run_env["TRACE_OUTPUT"] = args.trace
+
                             try:
-                                out = bench.run(verbose, dpus=nr_dpus)
+                                out = bench.run(verbose, dpus=nr_dpus, env=run_env)
                             except TypeError:
-                                out = bench.run(verbose)
+                                out = bench.run(verbose, env=run_env)
                                 
                             time_val = bench.parse_time(out)
                             if time_val is not None:
@@ -514,7 +548,8 @@ def execute_sweep(args, benchmarks, operations, metric_arg="param", output_csv="
                         for bench_name, time_val in results.items():
                             row = [op_name, elems_per_dpu, nr_elements, nr_dpus, bench_name, time_val, scaling_label, 
                                    1 if getattr(args, 'pipeline', False) else 0, 
-                                   1 if getattr(args, 'logging', False) else 0]
+                                   1 if getattr(args, 'logging', False) else 0,
+                                   1 if getattr(args, 'jit', False) else 0]
                             if extra_cols:
                                 row.extend(extra_cols.values())
                             writer.writerow(row)

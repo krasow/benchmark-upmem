@@ -20,18 +20,27 @@ def run_sweep(args, registry_config, registry):
     
     libvectordpu = LibVectorDPU()
     
-    for use_pipeline in [False, True]:
-        print(f"\n>>>> Starting Pipeline Comparison: PIPELINE={'ENABLED' if use_pipeline else 'DISABLED'} <<<<\n")
+    configs = [
+        (False, False), # Baseline (No Pipeline, No JIT)
+        (True, False),  # Pipeline Enabled, JIT Disabled
+        (True, True)    # Pipeline Enabled, JIT Enabled
+    ]
+    
+    for use_pipeline, use_jit in configs:
+        jit_str = "ENABLED" if use_jit else "DISABLED"
+        pipe_str = "ENABLED" if use_pipeline else "DISABLED"
+        print(f"\n>>>> Starting Pipeline Comparison: PIPELINE={pipe_str}, JIT={jit_str} <<<<\n")
         
         # 1. Rebuild library
-        if not libvectordpu.rebuild_library(use_pipeline, args.logging, args.trace, verbose):
-            print(f"Failed to rebuild libvectordpu library with PIPELINE={use_pipeline}. skipping.")
+        if not libvectordpu.rebuild_library(use_pipeline, args.logging, args.trace, use_jit, verbose):
+            print(f"Failed to rebuild libvectordpu library with PIPELINE={use_pipeline}, JIT={use_jit}. skipping.")
             continue
             
         # 2. Run sub-suites
         import copy
         sub_args = copy.copy(args)
         sub_args.pipeline = use_pipeline
+        sub_args.jit = use_jit
         sub_args.skip_rebuild = True
         
         for suite_name in sub_suites:

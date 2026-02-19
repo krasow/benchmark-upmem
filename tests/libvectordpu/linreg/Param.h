@@ -4,8 +4,8 @@
 #include <stdlib.h>
 
 typedef int32_t T;
-const uint64_t N = 1073741824;
-const uint32_t DIM = 10;
+const uint64_t N = 67108864;
+const uint32_t DIM = 5;
 const uint32_t iterations = 50;
 const uint32_t warmup_iterations = 10;
 const uint32_t check_correctness = 0;

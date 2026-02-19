@@ -12,9 +12,9 @@ const uint32_t load_ref = 0;
 const char* ref_path = "../../cpu-verification/linreg/data";
 const uint32_t seed = 1;
 
-const uint32_t dpu_number = 1024;
-const uint32_t dim = 10;
-const uint64_t nr_elements = 1073741824;
+const uint32_t dpu_number = 256;
+const uint32_t dim = 5;
+const uint64_t nr_elements = 134217728;
 const uint32_t iterations = 50;
 const uint32_t warmup_iterations = 10;
 const float lr = 1e-4;

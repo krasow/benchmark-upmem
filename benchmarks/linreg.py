@@ -58,7 +58,7 @@ def run_sweep(args, registry_config):
 
     skip_rebuild = getattr(args, 'skip_rebuild', False)
     if libvectordpu in selected_benchmarks and not skip_rebuild:
-        if not libvectordpu.rebuild_library(args.pipeline, args.logging, args.trace, verbose):
+        if not libvectordpu.rebuild_library(args.pipeline, args.logging, args.trace, args.jit, verbose):
             print("Failed to rebuild libvectordpu library. Aborting libvectordpu tests.")
             selected_benchmarks.remove(libvectordpu)
     # Linreg specific defaults if not provided in args

@@ -51,6 +51,7 @@ void compare_cpu_dpu_vectors(const std::vector<int>& a,
 }
 
 int main() {
+  {
     std::vector<T> a(N), b(N);
     if (load_ref) {
         std::cout << "Loading reference data from " << ref_path << "..." << std::endl;
@@ -97,6 +98,9 @@ int main() {
     if (check_correctness){
         compare_cpu_dpu_vectors(a, b, result, iterations);
     }
+  }
+
+    DpuRuntime::get().shutdown();
 
     return 0;
 }

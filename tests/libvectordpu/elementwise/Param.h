@@ -10,6 +10,6 @@ const uint32_t seed = 1;
 
 const uint64_t N = 805306368;
 const uint32_t iterations = 50;
-const uint32_t warmup_iterations = 1;
+const uint32_t warmup_iterations = 10;
 #define OPERATION(a, b) abs(-((a + b) - a))
 #endif
