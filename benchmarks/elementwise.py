@@ -61,6 +61,19 @@ class Baseline(Benchmark):
             "seed": seed
         })
 
+class CPUElementwise(CPUBenchmark):
+    def prepare(self, dpus, elements, op_val, warmup, iterations, check=False, load_ref=False, seed=1):
+        self.update_params_file({
+            "N": elements,
+            "OPERATION": op_val,
+            "warmup_iterations": warmup,
+            "iterations": iterations,
+            "check_correctness": "1" if check else "0",
+            "load_ref": "1" if load_ref else "0",
+            "ref_path": '"./data"',
+            "seed": seed
+        })
+
 def run_sweep(args, registry_config):
     output_csv = "sweep_results.csv"
     verbose = args.verbose
@@ -71,7 +84,7 @@ def run_sweep(args, registry_config):
     simplepim = SimplePIM()
     libvectordpu = LibVectorDPUElementwise()
     baseline = Baseline()
-    cpu_elementwise = CPUBenchmark("elementwise")
+    cpu_elementwise = CPUElementwise("elementwise")
     
     selected_benchmarks = []
     if args.libvectordpu: selected_benchmarks.append(libvectordpu)
@@ -82,7 +95,7 @@ def run_sweep(args, registry_config):
 
     skip_rebuild = getattr(args, 'skip_rebuild', False)
     if libvectordpu in selected_benchmarks and not skip_rebuild:
-        if not libvectordpu.rebuild_library(args.pipeline, args.logging, args.trace, args.jit, verbose):
+        if not libvectordpu.rebuild_library(args.pipeline, args.logging, args.trace, args.jit, getattr(args, 'debug', False), verbose):
             print("Failed to rebuild libvectordpu library. Aborting libvectordpu tests.")
             selected_benchmarks.remove(libvectordpu)
             

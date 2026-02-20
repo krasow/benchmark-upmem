@@ -38,6 +38,20 @@ class LibVectorDPULinReg(LibVectorDPU):
             "seed": seed
         })
 
+class CPULinReg(CPUBenchmark):
+    def prepare(self, dpus, elements, dim, warmup, iterations, check=False, load_ref=False, seed=1):
+        self.update_params_file({
+            "N": elements,
+            "DIM": dim,
+            "iterations": iterations,
+            "warmup_iterations": warmup,
+            "scaling_shift": 12,
+            "check_correctness": "1" if check else "0",
+            "load_ref": "1" if load_ref else "0",
+            "ref_path": '"./data"',
+            "seed": seed
+        })
+
 def run_sweep(args, registry_config):
     output_csv = "sweep_results.csv"
     verbose = args.verbose
@@ -48,7 +62,7 @@ def run_sweep(args, registry_config):
     
     simplepim = SimplePIMLinReg()
     libvectordpu = LibVectorDPULinReg()
-    cpu_linreg = CPUBenchmark("linreg")
+    cpu_linreg = CPULinReg("linreg")
     
     selected_benchmarks = []
     if args.libvectordpu: selected_benchmarks.append(libvectordpu)
@@ -58,7 +72,7 @@ def run_sweep(args, registry_config):
 
     skip_rebuild = getattr(args, 'skip_rebuild', False)
     if libvectordpu in selected_benchmarks and not skip_rebuild:
-        if not libvectordpu.rebuild_library(args.pipeline, args.logging, args.trace, args.jit, verbose):
+        if not libvectordpu.rebuild_library(args.pipeline, args.logging, args.trace, args.jit, getattr(args, 'debug', False), verbose):
             print("Failed to rebuild libvectordpu library. Aborting libvectordpu tests.")
             selected_benchmarks.remove(libvectordpu)
     # Linreg specific defaults if not provided in args

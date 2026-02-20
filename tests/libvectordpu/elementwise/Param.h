@@ -3,13 +3,13 @@
 #include <stdint.h>
 #include <stdlib.h>
 typedef int32_t T; 
-const uint32_t check_correctness = 0;
-const uint32_t load_ref = 0;
+const uint32_t check_correctness = 1;
+const uint32_t load_ref = 1;
 const char* ref_path = "../../cpu-verification/elementwise/data";
 const uint32_t seed = 1;
 
-const uint64_t N = 805306368;
-const uint32_t iterations = 50;
-const uint32_t warmup_iterations = 10;
+const uint64_t N = 268435456;
+const uint32_t iterations = 1;
+const uint32_t warmup_iterations = 5;
 #define OPERATION(a, b) abs(-((a + b) - a))
 #endif

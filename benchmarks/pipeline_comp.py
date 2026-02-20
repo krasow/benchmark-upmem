@@ -32,7 +32,7 @@ def run_sweep(args, registry_config, registry):
         print(f"\n>>>> Starting Pipeline Comparison: PIPELINE={pipe_str}, JIT={jit_str} <<<<\n")
         
         # 1. Rebuild library
-        if not libvectordpu.rebuild_library(use_pipeline, args.logging, args.trace, use_jit, verbose):
+        if not libvectordpu.rebuild_library(use_pipeline, args.logging, args.trace, use_jit, getattr(args, 'debug', False), verbose):
             print(f"Failed to rebuild libvectordpu library with PIPELINE={use_pipeline}, JIT={use_jit}. skipping.")
             continue
             

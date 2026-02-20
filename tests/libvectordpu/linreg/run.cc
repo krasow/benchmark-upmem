@@ -61,14 +61,14 @@ int main() {
     Timer timer;
     start(&timer, 0, 0);
 
-    std::vector<T> grads(DIM);
+    std::vector<int64_t> grads(DIM);
     for (uint32_t iter = 0; iter < iterations; iter++) {
         if (iterations > 1 && iter % 10 == 0) std::cout << "Iteration " << iter << "..." << std::endl;
         
         // 1. Compute Error = sum(X_j * w_j) - Y
         dpu_vector<T> error = -dy;
         for (uint32_t j = 0; j < DIM; j++) { 
-            error = error + (dx_cols[j] * dw_scalar[j]);
+            error += (dx_cols[j] * dw_scalar[j]); 
         }
         
         // 2. Compute Gradients Grad_j = sum(X_j * error)
@@ -81,7 +81,7 @@ int main() {
 
     std::cout << "Final gradients: ";
     for (uint32_t i = 0; i < DIM; i++) {
-        std::cout << (int64_t)grads[i] << " ";
+        std::cout << grads[i] << " ";
     }
     std::cout << std::endl;
 

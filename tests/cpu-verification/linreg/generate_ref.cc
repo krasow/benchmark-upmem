@@ -7,6 +7,8 @@
 #include <chrono>
 #include "Param.h"
 
+#define DoNotOptimize(x) asm volatile("" : : "r,m"(x) : "memory")
+
 void write_bin(const std::string& filename, const void* data, size_t size) {
     std::ofstream out(filename, std::ios::binary);
     if (!out) {
@@ -24,7 +26,10 @@ int main(int argc, char** argv) {
     std::vector<std::vector<T>> host_x_cols(DIM, std::vector<T>(N));
     std::vector<T> host_y(N);
     
+    omp_set_num_threads(24);
+
     // 1. Generate Input Data
+    #pragma omp parallel for
     for (uint32_t i = 0; i < N; i++) {
         for (uint32_t j = 0; j < DIM; j++) {
             host_x_cols[j][i] = (i * (DIM + 1) + j) % 256;
@@ -36,8 +41,7 @@ int main(int argc, char** argv) {
     std::vector<int64_t> expected_grads(DIM, 0);
     std::vector<T> error(N);
 
-    omp_set_num_threads(24);
-
+    std::cout << "Starting warmup..." << std::endl;
     // Warmup
     for (uint32_t iter = 0; iter < warmup_iterations; iter++) {
         #pragma omp parallel for
@@ -53,7 +57,10 @@ int main(int argc, char** argv) {
             }
             expected_grads[j] = accum;
         }
+        DoNotOptimize(expected_grads.data());
     }
+
+    std::cout << "Starting benchmark..." << std::endl;
 
     auto start = std::chrono::high_resolution_clock::now();
 
@@ -74,10 +81,11 @@ int main(int argc, char** argv) {
             }
             expected_grads[j] = accum;
         }
+        DoNotOptimize(expected_grads.data());
     }
 
     auto end = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::milli> elapsed = (end - start) / iterations;
+    std::chrono::duration<double, std::milli> elapsed = (end - start);
     
     std::cout << "cpu_baseline (ms): " << elapsed.count() << std::endl;
 

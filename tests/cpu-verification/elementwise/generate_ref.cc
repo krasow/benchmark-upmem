@@ -7,6 +7,8 @@
 #include <chrono>
 #include "Param.h"
 
+#define DoNotOptimize(x) asm volatile("" : : "r,m"(x) : "memory")
+
 void write_bin(const std::string& filename, const void* data, size_t size) {
     std::ofstream out(filename, std::ios::binary);
     if (!out) {
@@ -24,24 +26,32 @@ int main(int argc, char** argv) {
     std::vector<T> a(N);
     std::vector<T> b(N);
     std::vector<T> res(N);
-    
-    // Data Init
-    for (uint64_t i = 0; i < N; i++) {
-        a[i] = std::rand() % 10;
-        b[i] = std::rand() % 10;
-    }
 
     // Benchmark CPU performance with OpenMP
     omp_set_num_threads(24);
     
+    // Data Init
+    #pragma omp parallel
+    {
+        unsigned int seed_thread = seed + omp_get_thread_num();
+        #pragma omp for
+        for (uint64_t i = 0; i < N; i++) {
+            a[i] = rand_r(&seed_thread) % 10;
+            b[i] = rand_r(&seed_thread) % 10;
+        }
+    }
+
     // Warmup
+    std::cout << "Starting warmup..." << std::endl;
     for (uint32_t iter = 0; iter < warmup_iterations; iter++) {
         #pragma omp parallel for
         for (uint64_t i = 0; i < N; i++) {
             res[i] = OPERATION(a[i], b[i]);
         }
+        DoNotOptimize(res.data());
     }
 
+    std::cout << "Starting benchmark..." << std::endl;
     auto start = std::chrono::high_resolution_clock::now();
     
     for (uint32_t iter = 0; iter < iterations; iter++) {
@@ -49,10 +59,11 @@ int main(int argc, char** argv) {
         for (uint64_t i = 0; i < N; i++) {
             res[i] = OPERATION(a[i], b[i]);
         }
+        DoNotOptimize(res.data());
     }
     
     auto end = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::milli> elapsed = (end - start) / iterations;
+    std::chrono::duration<double, std::milli> elapsed = (end - start);
     
     std::cout << "cpu_baseline (ms): " << elapsed.count() << std::endl;
     

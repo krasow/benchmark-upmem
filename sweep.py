@@ -15,6 +15,7 @@ def main():
     parser.add_argument("--logging", action="store_true", help="Enable LOGGING support for libvectordpu (requires rebuild)")
     parser.add_argument("--jit", action="store_true", help="Enable JIT compilation for libvectordpu (requires rebuild)")
     parser.add_argument("--trace", nargs='?', const=True, default=False, help="Enable TRACE support (optionally specify output file)")
+    parser.add_argument("--debug", action="store_true", help="Preserve JIT temporary files for debugging")
     parser.add_argument("--iterations", type=int, default=1, help="Number of iterations for the benchmark (default: 1)")
     parser.add_argument("--check", action="store_true", help="Verify correctness by comparing results")
     parser.add_argument("--dpus", type=int, nargs="+", help="List of DPUs to sweep over")
@@ -38,6 +39,8 @@ def main():
         registry.get_suite(suite_name)["add_args"](parser)
 
     args = parser.parse_args()
+    if args.logging or args.debug:
+        args.verbose = True
     csv_file = args.csv_file
 
     if not args.only_plot:

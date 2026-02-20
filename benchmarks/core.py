@@ -107,7 +107,7 @@ class Benchmark:
             return True
         
         # Failure strings
-        if "Mismatch at index" in stdout or "result mismatch at position" in stdout:
+        if "Mismatch at index" in stdout or "result mismatch at position" in stdout or "Mismatch at gradient" in stdout:
             return False
             
         return None # No verification performed
@@ -117,8 +117,9 @@ class CPUBenchmark(Benchmark):
         super().__init__(name="cpu_baseline", exec_cmd="./generate_ref", relative_dir=f"cpu-verification/{suite_name}", label="cpu_baseline")
         self.suite_name = suite_name
 
-    def prepare(self, *args, **kwargs):
-        # Specific prepare logic can go here if needed
+    def prepare(self, dpus, elements, op_val, warmup, iterations, check=False, load_ref=False, seed=1):
+        """Updates the local Param.h for CPU verification."""
+        # This will be overridden by subclasses for specific suites if needed
         pass
 
     def run(self, verbose=False):
@@ -136,19 +137,20 @@ class LibVectorDPU(Benchmark):
             run_env.update(env)
         return super().run(verbose, env=run_env)
 
-    def rebuild_library(self, use_pipeline, use_logging=False, use_trace=False, use_jit=False, verbose=False):
+    def rebuild_library(self, use_pipeline, use_logging=False, use_trace=False, use_jit=False, use_debug=False, verbose=False):
         src_dir = os.path.join(os.path.dirname(TESTS_DIR), "opt", "vectordpu_src")
         dest_dir = os.path.join(os.path.dirname(TESTS_DIR), "opt", "vectordpu")
         
         logging_val = 1 if use_logging else 0
         trace_val = 1 if use_trace else 0
         jit_val = 1 if use_jit else 0
+        debug_val = 1 if use_debug else 0
         pipeline_val = 1 if (use_pipeline or use_jit) else 0
         
-        command = f"make clean && DESTDIR={dest_dir} make install BACKEND=hw PIPELINE={pipeline_val} LOGGING={logging_val} TRACE={trace_val} JIT={jit_val} CXX_STANDARD=c++17"
+        command = f"make clean && DESTDIR={dest_dir} make install BACKEND=hw PIPELINE={pipeline_val} LOGGING={logging_val} TRACE={trace_val} JIT={jit_val} DEBUG_KEEP_JIT_DIR={debug_val} CXX_STANDARD=c++17"
         
         if verbose:
-            print(f"[libvectordpu] Rebuilding library with PIPELINE={pipeline_val}, LOGGING={logging_val}, TRACE={trace_val}, JIT={jit_val}...")
+            print(f"[libvectordpu) Rebuilding library with PIPELINE={pipeline_val}, LOGGING={logging_val}, TRACE={trace_val}, JIT={jit_val}, DEBUG={debug_val}...")
         
         full_command = f"source {ENV_FILE} && {command}"
         try:
@@ -388,8 +390,7 @@ class Plotter:
                             op_center = (op_start + cursor - bar_width) / 2
                             ax.text(op_center, 0, op, ha='center', va='top', fontsize=8,
                                     fontweight='bold', transform=ax.get_xaxis_transform())
-
-                        # Element label centered under this element group
+        # Element label centered under this element group
                         group_center = (group_start + cursor - bar_width) / 2
                         x_tick_pos.append(group_center)
                         x_tick_labels.append(f"{element:,}")
@@ -480,6 +481,19 @@ def execute_sweep(args, benchmarks, operations, metric_arg="param", output_csv="
     print(f"Benchmarks: {[b.name for b in benchmarks]}")
     if extra_cols:
         print(f"Extra Config: {extra_cols}")
+    
+    modes = []
+    if getattr(args, 'pipeline', False): modes.append('Pipeline')
+    if getattr(args, 'jit', False): modes.append('JIT')
+    if getattr(args, 'logging', False): modes.append('Logging')
+    if getattr(args, 'debug', False): modes.append('Debug')
+    if modes:
+        print(f"Modes: {', '.join(modes)}")
+        
+    trace_val = getattr(args, 'trace', None)
+    if trace_val:
+        print(f"Trace: {trace_val}")
+
     if cpu_benchmark and check:
         print(f"CPU Verification: Enabled ({cpu_benchmark.name})")
     print(f"{'='*60}\n")
@@ -508,23 +522,21 @@ def execute_sweep(args, benchmarks, operations, metric_arg="param", output_csv="
                     
                     results = {}
                     
-                    # 3. CPU Baseline (Optional)
-                    if check and cpu_benchmark:
-                        print(f"\n--- Generating CPU Baseline for {op_name} (N={nr_elements}) ---")
-                        # This prepare call assumes a specific signature. 
-                        # To be safe, we pass op_param as 3rd arg.
-                        cpu_benchmark.prepare(nr_dpus, nr_elements, op_param, warmup, iterations, check=check, load_ref=True)
-                        cpu_out = cpu_benchmark.run(verbose)
-                        cpu_time = cpu_benchmark.parse_time(cpu_out)
-                        if cpu_time: results["cpu_baseline"] = cpu_time
-
                     print(f"\n--- Sweeping: op={op_name}, scaling={scaling_label}, elements/dpu={elems_per_dpu}, total={nr_elements}, dpus={nr_dpus} ---")
                     
                     # 4. Run Benchmarks
-                    for bench in benchmarks:
+                    for i, bench in enumerate(benchmarks):
                         # Call prepare with common args + op_param
                         bench.prepare(nr_dpus, nr_elements, op_param, warmup, iterations, check=check, load_ref=check)
                         
+                        # 3. CPU Baseline (Optional)
+                        if i == 0 and check and cpu_benchmark:
+                            print(f"\n--- Generating CPU Baseline for {op_name} (N={nr_elements}) ---")
+                            cpu_benchmark.prepare(nr_dpus, nr_elements, op_param, warmup, iterations, check=check, load_ref=True)
+                            cpu_out = cpu_benchmark.run(verbose)
+                            cpu_time = cpu_benchmark.parse_time(cpu_out)
+                            if cpu_time: results["cpu_baseline"] = cpu_time
+
                         if bench.compile(verbose):
                             run_env = {}
                             if getattr(args, 'trace', None) and isinstance(args.trace, str):
