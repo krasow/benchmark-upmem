@@ -33,7 +33,7 @@ int main(){
         srand(1);
     }
     simplepim_management_t* table_management = table_management_init(dpu_number);
-    if (print_info) printf("dim: %d, num_elem: %ld, iter: %d, lr: %f \n", dim, nr_elements, iterations, lr);
+    if (print_info) printf("dim: %d, num_elem: %ld, iter: %d, lr: %f, RED_T size: %zu\n", dim, nr_elements, iterations, lr, sizeof(RED_T));
 
     // inputs
     T* elements = (T*)malloc_scatter_aligned(nr_elements, (dim+1)*sizeof(T), table_management);
@@ -78,7 +78,7 @@ int main(){
 
     // Warmup
     for(int l=0; l<warmup_iterations; l++){
-        int64_t* res = table_gen_red("t1", "t3",  dim*sizeof(int64_t), 1, va_handle, table_management, data_offset);
+        RED_T* res = table_gen_red("t1", "t3",  dim*sizeof(RED_T), 1, va_handle, table_management, data_offset);
         free(res);
         simplepim_broadcast("t2", weights, 1, dim*sizeof(T), table_management);
     }
@@ -86,9 +86,9 @@ int main(){
     Timer timer;
     start(&timer, 0, 0);
 
-    int64_t* final_res = NULL;
+    RED_T* final_res = NULL;
     for(int l=0; l<iterations; l++){
-        final_res = table_gen_red("t1", "t3",  dim*sizeof(int64_t), 1, va_handle, table_management, data_offset);
+        final_res = table_gen_red("t1", "t3",  dim*sizeof(RED_T), 1, va_handle, table_management, data_offset);
         if (l < iterations - 1) free(final_res);
     }
 
@@ -97,7 +97,7 @@ int main(){
     if (final_res) {
         printf("Final gradients: ");
         for (int i = 0; i < dim; i++) {
-            printf("%ld ", final_res[i]);
+            printf("%lld ", (long long)final_res[i]);
         }
         printf("\n");
 
@@ -105,7 +105,7 @@ int main(){
             int match = 1;
             for (int i = 0; i < dim; i++) {
                 if (final_res[i] != expected_grads[i]) {
-                    printf("Mismatch at gradient %d: got %ld, expected %ld\n", i, final_res[i], expected_grads[i]);
+                    printf("Mismatch at gradient %d: got %lld, expected %lld\n", i, (long long)final_res[i], (long long)expected_grads[i]);
                     match = 0;
                 }
             }

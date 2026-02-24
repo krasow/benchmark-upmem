@@ -23,7 +23,7 @@ int main() {
         std::srand(seed);
     }
 
-    std::cout << "Starting libvectordpu_linreg with N=" << N << ", DIM=" << DIM << std::endl;
+    std::cout << "[VERIFY_TAG] Starting libvectordpu_linreg with N=" << N << ", DIM=" << DIM << std::endl;
 
     std::vector<std::vector<T>> host_x_cols(DIM, std::vector<T>(N));
     std::vector<T> host_y(N);

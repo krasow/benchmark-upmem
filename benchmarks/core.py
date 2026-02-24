@@ -41,9 +41,10 @@ class Benchmark:
 
     def compile(self, verbose=False, extra_flags=""):
         """Runs make clean && make with extra flags."""
-        command = "make clean && make"
         if extra_flags:
-            command = "EXTRA_FLAGS=\"{0}\" {1}".format(extra_flags, command)
+            command = "export EXTRA_FLAGS=\"{0}\" && make clean && make".format(extra_flags)
+        else:
+            command = "make clean && make"
         return self._run_shell(command, verbose)
 
     def run(self, verbose=False, env=None, **kwargs):
@@ -137,7 +138,7 @@ class LibVectorDPU(Benchmark):
             run_env.update(env)
         return super().run(verbose, env=run_env)
 
-    def rebuild_library(self, use_pipeline, use_logging=False, use_trace=False, use_jit=False, use_debug=False, verbose=False):
+    def rebuild_library(self, use_pipeline, use_logging=False, use_trace=False, use_jit=False, use_debug=False, use_promotion=False, lookahead=4, verbose=False):
         src_dir = os.path.join(os.path.dirname(TESTS_DIR), "opt", "vectordpu_src")
         dest_dir = os.path.join(os.path.dirname(TESTS_DIR), "opt", "vectordpu")
         
@@ -145,12 +146,13 @@ class LibVectorDPU(Benchmark):
         trace_val = 1 if use_trace else 0
         jit_val = 1 if use_jit else 0
         debug_val = 1 if use_debug else 0
+        promotion_val = 1 if use_promotion else 0
         pipeline_val = 1 if (use_pipeline or use_jit) else 0
         
-        command = f"make clean && DESTDIR={dest_dir} make install BACKEND=hw PIPELINE={pipeline_val} LOGGING={logging_val} TRACE={trace_val} JIT={jit_val} DEBUG_KEEP_JIT_DIR={debug_val} CXX_STANDARD=c++17"
+        command = f"make clean && DESTDIR={dest_dir} make install BACKEND=hw PIPELINE={pipeline_val} LOGGING={logging_val} TRACE={trace_val} JIT={jit_val} DEBUG_KEEP_JIT_DIR={debug_val} ENABLE_PROMOTION_REDUCTIONS={promotion_val} MAX_FUSION_LOOKAHEAD_LENGTH={lookahead} CXX_STANDARD=c++17"
         
         if verbose:
-            print(f"[libvectordpu) Rebuilding library with PIPELINE={pipeline_val}, LOGGING={logging_val}, TRACE={trace_val}, JIT={jit_val}, DEBUG={debug_val}...")
+            print(f"[libvectordpu] Rebuilding library with PIPELINE={pipeline_val}, LOGGING={logging_val}, TRACE={trace_val}, JIT={jit_val}, DEBUG={debug_val}, PROMOTION={promotion_val}, LOOKAHEAD={lookahead}...")
         
         full_command = f"source {ENV_FILE} && {command}"
         try:
@@ -187,7 +189,7 @@ class Plotter:
     def __init__(self, csv_path):
         self.csv_path = csv_path
 
-    def plot(self):
+    def plot(self, bits_filter=None):
         """Generates plots from the CSV data."""
         if not os.path.exists(self.csv_path):
             print("CSV file {0} not found.".format(self.csv_path))
@@ -201,7 +203,24 @@ class Plotter:
         try:
             import pandas as pd
             import numpy as np
-            df = pd.read_csv(self.csv_path)
+            try:
+                df = pd.read_csv(self.csv_path)
+            except Exception as read_err:
+                print(f"Warning: Initial CSV read failed ({read_err}). Attempting to read by skipping bad lines...")
+                # Try skipping bad lines (column mismatch)
+                df = pd.read_csv(self.csv_path, error_bad_lines=False, warn_bad_lines=True)
+            
+            # Apply bit-width filter if requested
+            if bits_filter == "32":
+                df = df[df['promotion'] == 0]
+                print("Filtering plot for 32-bit results only.")
+            elif bits_filter == "64":
+                df = df[df['promotion'] == 1]
+                print("Filtering plot for 64-bit results only.")
+            
+            if df.empty:
+                print("No data found after filtering for {0}-bit. Skipping plot generation.".format(bits_filter if bits_filter else "any"))
+                return
         except Exception as e:
             print("Error reading CSV: {0}".format(e))
             return
@@ -210,26 +229,48 @@ class Plotter:
         base_required_cols = {"operation", "elements_per_dpu", "total_elements", "dpus", "benchmark", "time", "scaling"}
         if not base_required_cols.issubset(df.columns):
             print("CSV missing required columns. Expected at least: {0}".format(base_required_cols))
+            print(f"Found columns: {list(df.columns)}")
             return
+
+        # Determine if we should show LA in variant names (if multiple LA values exist)
+        show_la = df['fusion_lookahead'].nunique() > 1 if 'fusion_lookahead' in df.columns else False
 
         # Create 'variant' column for differentiation
         def create_variant(row):
             bench = str(row['benchmark'])
             # Normalize core benchmark names
-            if "simplepim" in bench: base = "simplepim"
-            elif "libvectordpu" in bench: base = "libvectordpu"
-            elif "baseline" in bench: base = "baseline"
-            else: base = bench
-            
-            mods = []
-            if base == "libvectordpu":
+            if "simplepim" in bench:
+                base = "simplepim"
+                if row.get('promotion') == 1:
+                    return "simplepim (64-bit)"
+                else:
+                    return "simplepim (32-bit)"
+            elif "libvectordpu" in bench:
+                base = "libvectordpu"
+                mods = []
                 if row.get('pipeline') == 1: mods.append("pipeline")
                 if row.get('jit') == 1: mods.append("jit")
                 if row.get('logging') == 1: mods.append("logging")
-            
-            if mods:
-                return f"{base} ({'+'.join(mods)})"
-            return base
+                
+                if row.get('promotion') == 1:
+                    suffix = " (64-bit)"
+                else:
+                    suffix = " (32-bit)"
+                
+                la = row.get('fusion_lookahead')
+                if show_la and la is not None:
+                    suffix = f" (LA={la}){suffix}"
+                
+                if mods:
+                    return f"{base} ({'+'.join(mods)}){suffix}"
+                return f"{base}{suffix}"
+            elif "baseline" in bench:
+                if row.get('promotion') == 1:
+                    return "baseline (64-bit)"
+                else:
+                    return "baseline (32-bit)"
+            else:
+                return bench
         
         df['variant'] = df.apply(create_variant, axis=1)
 
@@ -238,21 +279,73 @@ class Plotter:
         # identical variant names but different times.  Average them out.
         group_keys = ['operation', 'elements_per_dpu', 'total_elements', 'dpus', 'variant', 'scaling']
         df = df.groupby(group_keys, as_index=False).agg({'time': 'mean', 'benchmark': 'first',
-                                                          'pipeline': 'max', 'logging': 'max', 'jit': 'max'})
+                                                          'pipeline': 'max', 'logging': 'max', 'jit': 'max', 'promotion': 'max'})
 
         # Permanent color and style mapping
         style_map = {
-            "simplepim": {"color": "red", "linestyle": "-"},
-            "baseline": {"color": "green", "linestyle": "-"},
+            "simplepim (32-bit)": {"color": "red", "linestyle": "-"},
+            "simplepim (64-bit)": {"color": "#FF6347", "linestyle": "--"}, # Tomato
+            "baseline (32-bit)": {"color": "green", "linestyle": "-"},
+            "baseline (64-bit)": {"color": "#32CD32", "linestyle": "--"}, # LimeGreen
+            "libvectordpu (32-bit)": {"color": "blue", "linestyle": "-"},
+            "libvectordpu (64-bit)": {"color": "#4169E1", "linestyle": "--"}, # Royal Blue
+            "libvectordpu (jit) (32-bit)": {"color": "#FF8C00", "linestyle": "-"}, # Dark Orange
+            "libvectordpu (jit) (64-bit)": {"color": "#8B4513", "linestyle": "--"}, # Saddle Brown
+            "libvectordpu (pipeline) (32-bit)": {"color": "#008080", "linestyle": "-"}, # Teal
+            "libvectordpu (pipeline) (64-bit)": {"color": "#20B2AA", "linestyle": "--"}, # Light Sea Green
+            "libvectordpu (pipeline+jit) (32-bit)": {"color": "purple", "linestyle": "-"},
+            "libvectordpu (pipeline+jit) (64-bit)": {"color": "#9400D3", "linestyle": "--"}, # Dark Violet
+            "libvectordpu (logging) (32-bit)": {"color": "gray", "linestyle": "-"},
+            "libvectordpu (logging) (64-bit)": {"color": "#A9A9A9", "linestyle": "--"}, # Dark Gray
+            # Fallbacks for old logs if needed
+            "libvectordpu (promotion)": {"color": "#4169E1", "linestyle": "--"},
             "libvectordpu": {"color": "blue", "linestyle": "-"},
-            "libvectordpu (pipeline)": {"color": "#008080", "linestyle": "--"}, # Teal
-            "libvectordpu (jit)": {"color": "#FF8C00", "linestyle": ":"},   # Dark Orange
-            "libvectordpu (pipeline+jit)": {"color": "purple", "linestyle": "-."},
-            "libvectordpu (logging)": {"color": "gray", "linestyle": "--"},
         }
 
         def get_style(variant):
-            return style_map.get(variant, {"color": "gray", "linestyle": "-"})
+            if variant in style_map:
+                return style_map[variant]
+            
+            # Simple fallback based on base name
+            if "simplepim" in variant:
+                if "64-bit" in variant or "promotion" in variant:
+                    return {"color": "red", "linestyle": "--"}
+                return {"color": "red", "linestyle": "-"}
+            if "baseline" in variant:
+                if "64-bit" in variant:
+                    return {"color": "green", "linestyle": "--"}
+                return {"color": "green", "linestyle": "-"}
+            if "libvectordpu" in variant:
+                import re
+                color = "blue"
+                ls = "-"
+                # Determine base color from mods
+                if "jit" in variant: color = "#FF8C00" # Orange
+                elif "pipeline" in variant: color = "#008080" # Teal
+                elif "logging" in variant: color = "gray"
+                
+                # Check for LA in name
+                la_match = re.search(r'\(LA=(\d+)\)', variant)
+                if la_match:
+                    la_val = int(la_match.group(1))
+                    ls_map = {1: "-", 2: "--", 4: "-.", 8: ":"}
+                    ls = ls_map.get(la_val, "-")
+                    
+                    # If bit-width is also present, we need another way to distinguish besides linestyle
+                    # Let's use color darkening for 64-bit if LA is also sweeping
+                    if "64-bit" in variant or "promotion" in variant:
+                        if color == "#FF8C00": color = "#8B4513" # SaddleBrown
+                        elif color == "#008080": color = "#004d4d" # Dark Teal
+                        elif color == "blue": color = "#00008B" # DarkBlue
+                else:
+                    # No LA sweep, use standard bit-width linestyle
+                    if "64-bit" in variant or "promotion" in variant:
+                        ls = "--"
+                        if color == "#FF8C00": color = "#8B4513"
+                        elif color == "blue": color = "#4169E1"
+                return {"color": color, "linestyle": ls}
+            
+            return {"color": "black", "linestyle": "-"}
         
         # Markers for different elements per dpu
         markers = ["o", "v", "^", "<", ">", "s", "p", "*", "D"]
@@ -453,9 +546,8 @@ def execute_sweep(args, benchmarks, operations, metric_arg="param", output_csv="
     with open(output_csv, "a", newline="") as csvfile:
         writer = csv.writer(csvfile)
         if not file_exists:
-            cols = ["operation", "elements_per_dpu", "total_elements", "dpus", "benchmark", "time", "scaling", "pipeline", "logging", "jit"]
-            if extra_cols:
-                cols.extend(extra_cols.keys())
+            cols = ["operation", "elements_per_dpu", "total_elements", "dpus", "benchmark", "time", "scaling", 
+                    "pipeline", "logging", "jit", "promotion", "fusion_lookahead", "dim", "iterations"]
             writer.writerow(cols)
 
     # 2. Determine Sweep Configurations (Scaling & DPUs)
@@ -489,6 +581,12 @@ def execute_sweep(args, benchmarks, operations, metric_arg="param", output_csv="
     if getattr(args, 'debug', False): modes.append('Debug')
     if modes:
         print(f"Modes: {', '.join(modes)}")
+
+    bits_val = getattr(args, 'bits', '32')
+    print(f"Reduction Bit-width: {bits_val}-bit")
+    
+    lookahead_val = getattr(args, 'fusion_lookahead', [4])
+    print(f"Fusion Lookahead: {lookahead_val}")
         
     trace_val = getattr(args, 'trace', None)
     if trace_val:
@@ -537,8 +635,8 @@ def execute_sweep(args, benchmarks, operations, metric_arg="param", output_csv="
                             cpu_time = cpu_benchmark.parse_time(cpu_out)
                             if cpu_time: results["cpu_baseline"] = cpu_time
 
-                        if bench.compile(verbose):
-                            run_env = {}
+                        if bench.compile(verbose, extra_flags=getattr(args, 'extra_flags', "")):
+                            run_env = os.environ.copy()
                             if getattr(args, 'trace', None) and isinstance(args.trace, str):
                                 run_env["TRACE_OUTPUT"] = args.trace
 
@@ -561,9 +659,11 @@ def execute_sweep(args, benchmarks, operations, metric_arg="param", output_csv="
                             row = [op_name, elems_per_dpu, nr_elements, nr_dpus, bench_name, time_val, scaling_label, 
                                    1 if getattr(args, 'pipeline', False) else 0, 
                                    1 if getattr(args, 'logging', False) else 0,
-                                   1 if getattr(args, 'jit', False) else 0]
-                            if extra_cols:
-                                row.extend(extra_cols.values())
+                                   1 if getattr(args, 'jit', False) else 0,
+                                   1 if getattr(args, 'promotion', False) else 0,
+                                   getattr(args, 'current_fusion_lookahead', 4),
+                                   extra_cols.get("dim", "") if extra_cols else "",
+                                   extra_cols.get("iterations", "") if extra_cols else ""]
                             writer.writerow(row)
                             
                     print("Results: " + ", ".join([f"{k}={v}ms" for k,v in results.items()]))

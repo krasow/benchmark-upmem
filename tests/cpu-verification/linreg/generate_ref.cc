@@ -44,19 +44,26 @@ int main(int argc, char** argv) {
     std::cout << "Starting warmup..." << std::endl;
     // Warmup
     for (uint32_t iter = 0; iter < warmup_iterations; iter++) {
-        #pragma omp parallel for
-        for (uint32_t i = 0; i < N; i++) {
-            error[i] = -host_y[i];
-        }
-        for (uint32_t j = 0; j < DIM; j++) {
-            int64_t accum = 0;
-            #pragma omp parallel for reduction(+:accum)
+        std::vector<int64_t> local_grads(DIM, 0);
+        #pragma omp parallel
+        {
+            std::vector<int64_t> private_grads(DIM, 0);
+            #pragma omp for
             for (uint32_t i = 0; i < N; i++) {
-                int64_t prod = (int64_t)host_x_cols[j][i] * error[i];
-                accum += (prod >> scaling_shift);
+                T err = -host_y[i];
+                for (uint32_t j = 0; j < DIM; j++) {
+                    int64_t prod = (int64_t)host_x_cols[j][i] * err;
+                    private_grads[j] += (prod >> scaling_shift);
+                }
             }
-            expected_grads[j] = accum;
+            #pragma omp critical
+            {
+                for (uint32_t j = 0; j < DIM; j++) {
+                    local_grads[j] += private_grads[j];
+                }
+            }
         }
+        expected_grads = local_grads;
         DoNotOptimize(expected_grads.data());
     }
 
@@ -65,22 +72,28 @@ int main(int argc, char** argv) {
     auto start = std::chrono::high_resolution_clock::now();
 
     for (uint32_t iter = 0; iter < iterations; iter++) {
-        // Compute Error = -Y
-        #pragma omp parallel for
-        for (uint32_t i = 0; i < N; i++) {
-            error[i] = -host_y[i];
-        }
-        
-        // Compute Gradients
-        for (uint32_t j = 0; j < DIM; j++) {
-            int64_t accum = 0;
-            #pragma omp parallel for reduction(+:accum)
+        std::vector<int64_t> local_grads(DIM, 0);
+
+        #pragma omp parallel
+        {
+            std::vector<int64_t> private_grads(DIM, 0);
+            #pragma omp for
             for (uint32_t i = 0; i < N; i++) {
-                int64_t prod = (int64_t)host_x_cols[j][i] * error[i];
-                accum += (prod >> scaling_shift);
+                T err = -host_y[i];
+                for (uint32_t j = 0; j < DIM; j++) {
+                    int64_t prod = (int64_t)host_x_cols[j][i] * err;
+                    private_grads[j] += (prod >> scaling_shift);
+                }
             }
-            expected_grads[j] = accum;
+
+            #pragma omp critical
+            {
+                for (uint32_t j = 0; j < DIM; j++) {
+                    local_grads[j] += private_grads[j];
+                }
+            }
         }
+        expected_grads = local_grads;
         DoNotOptimize(expected_grads.data());
     }
 

@@ -33,22 +33,22 @@ void start_func(gen_red_arguments_t* args){
 
 void map_to_val_func(void* input, void* grads, uint32_t* dummy){
     // the data is preserved and later added to corresponding weights 
-    int64_t* grads_ptr = (int64_t*)grads;
+    RED_T* grads_ptr = (RED_T*)grads;
     T* input_ptr = (T*)input;
     T* weights_data_ptr = (T*)weights_data;
 
     // calculate gradients w.r.t. linear weights
-    int64_t dot_prod = 0;
+    RED_T dot_prod = 0;
     for(int i=0; i<dim; i++){
-        dot_prod += input_ptr[i] * weights_data_ptr[i];
+        dot_prod += (RED_T)input_ptr[i] * weights_data_ptr[i];
     }
 
-    int64_t e = dot_prod-(input_ptr[dim]<<shift_amount);
+    RED_T e = dot_prod-((RED_T)input_ptr[dim]<<shift_amount);
     //printf("error : %f\n", e*e);
     for(int i=0; i<dim; i++){
         //grads_ptr[i] = e * input_ptr[i]>>prevent_overflow_shift_amount;
         //printf("%f ", grads_ptr[i]);
-        grads_ptr[i] = input_ptr[i] * e >> prevent_overflow_shift_amount; 
+        grads_ptr[i] = (RED_T)input_ptr[i] * e >> prevent_overflow_shift_amount; 
     }
     //printf("\n");
     

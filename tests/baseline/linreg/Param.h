@@ -4,16 +4,15 @@
 #include <stdlib.h>
 #include <stdint.h>
 
-const uint32_t print_info = 1;
-typedef int T; 
+typedef int32_t T; 
+#ifndef RED_T
+typedef int64_t RED_T;
+#endif
 
 const uint32_t check_correctness = 0;
 const uint32_t load_ref = 0;
 const char* ref_path = "../../cpu-verification/linreg/data";
 const uint32_t seed = 1;
-#ifndef RED_T
-typedef int64_t RED_T;
-#endif
 
 const uint32_t dpu_number = 256;
 const uint32_t dim = 10;

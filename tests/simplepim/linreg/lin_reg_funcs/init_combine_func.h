@@ -15,8 +15,8 @@ void init_func(uint32_t size, void* ptr){
 }
 
 void combine_func(void* dest, void* src){
-    int64_t* ptr1 = (int64_t*)dest;
-    int64_t* ptr2 = (int64_t*)src;
+    RED_T* ptr1 = (RED_T*)dest;
+    RED_T* ptr2 = (RED_T*)src;
     for(int i=0; i<dim; i++){
         ptr1[i] += ptr2[i];
     }

@@ -28,7 +28,7 @@ all: $(HOST)
 
 $(HOST): $(HOST_SRC) $(SIMPLE_PIM_SRC)
 	@mkdir -p $(BIN_DIR)
-	gcc $(CFLAGS) $(HOST_SRC) $(SIMPLE_PIM_SRC) -o $(HOST) $(LIBS)
+	gcc $(CFLAGS) $(EXTRA_FLAGS) $(HOST_SRC) $(SIMPLE_PIM_SRC) -o $(HOST) $(LIBS)
 
 clean:
 	rm -rf $(BIN_DIR)
